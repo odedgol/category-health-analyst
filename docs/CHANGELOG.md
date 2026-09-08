@@ -2,6 +2,38 @@
 
 One entry per sprint merge, newest first.
 
+## Schema rework: real fields, multi-site (unreleased)
+
+Replaced the 9 invented percentage metrics with the fields a real
+category-health feed actually tracks, based on direct production
+experience: `image_count`, `aligned_tax_count`, `not_aligned_tax_count`,
+`missing_category_exists` — plus a `site_id` dimension (data is now
+tracked per category **and site/region**, not just per category), since
+the same category has different numbers in different markets.
+
+- Added `sites.py`: a small fixed registry (mirrors `metrics.py`'s
+  pattern), using eBay's real SiteID values (US=0, Canada=2, UK=3,
+  Australia=15, Germany=77) rather than an invented numbering, plus
+  `resolve_site()` — plain exact/alias matching, not a Chain of
+  Responsibility (a closed set of 5 regions doesn't need fuzzy matching).
+- `metrics.METRICS` now has 4 entries instead of 9.
+- `MetricPoint`, `CategorySnapshot`, `PeriodComparison` gained `site_id`;
+  `QueryIntent` gained `site_mention`.
+- Every `MetricsRepository` method (and DB schema: `category_daily_metrics`
+  is now keyed by `(category_id, site_id, date)`) and the 3 relevant MCP
+  tool inputs (`get_metric_history`, `compare_metric_periods`,
+  `get_category_snapshot`) take `site_id`.
+- The 4 curated events in `fixtures/categories.yaml` were remapped to the
+  new metrics (taxonomy alignment → `aligned_tax_count`, image coverage →
+  `image_count`, orphan rate → `missing_category_exists`, price anomaly →
+  `not_aligned_tax_count`), and `fixtures/category_notes.yaml`'s prose
+  updated to match.
+- Manually verified: fresh 120-day seed (18 categories × 5 sites × 120
+  days = 10,800 rows) shows the Women's Running Shoes event hitting only
+  the US site while Canada is unaffected on the same day, and the
+  Bicycle Helmets `missing_category_exists` flag flipping cleanly from
+  0.0 to 1.0 exactly on its configured day.
+
 ## Sprint 4 — MCP server (unreleased)
 
 - Added `bootstrap.py` (`AdapterBundle` + `build_adapters()`) — the

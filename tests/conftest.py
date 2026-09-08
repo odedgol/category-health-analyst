@@ -43,15 +43,18 @@ def temp_duckdb(tmp_path: Path) -> Iterator[duckdb.DuckDBPyConnection]:
         connection.close()
 
 
+SEEDED_SITE_ID = 0  # US, per sites.DEFAULT_SITE_ID
+
+
 @pytest.fixture
 def seeded_repository(temp_duckdb: duckdb.DuckDBPyConnection) -> DuckDbRepository:
     """A `DuckDbRepository` pre-loaded with two categories and 10 days of hand-crafted metrics.
 
-    Category 1's `image_coverage_pct` rises linearly from 80 to 89
-    (higher-is-better improvement) and `duplicate_rate_pct` falls from 5
-    to 1.5 (lower-is-better improvement) — fixed, known values so
-    `compare_periods` and `get_metric_series` assertions don't depend on
-    randomness.
+    Both at site 0 (US). Category 1's `image_count` rises linearly from
+    80 to 89 (higher-is-better improvement) and `not_aligned_tax_count`
+    falls from 5 to 1.5 (lower-is-better improvement) — fixed, known
+    values so `compare_periods` and `get_metric_series` assertions don't
+    depend on randomness.
     """
     repository = DuckDbRepository(temp_duckdb)
     repository.insert_categories(
@@ -67,7 +70,8 @@ def seeded_repository(temp_duckdb: duckdb.DuckDBPyConnection) -> DuckDbRepositor
         points.append(
             MetricPoint(
                 category_id=1,
-                metric_key="image_coverage_pct",
+                site_id=SEEDED_SITE_ID,
+                metric_key="image_count",
                 date=day,
                 value=80.0 + day_offset,
             )
@@ -75,7 +79,8 @@ def seeded_repository(temp_duckdb: duckdb.DuckDBPyConnection) -> DuckDbRepositor
         points.append(
             MetricPoint(
                 category_id=1,
-                metric_key="duplicate_rate_pct",
+                site_id=SEEDED_SITE_ID,
+                metric_key="not_aligned_tax_count",
                 date=day,
                 value=5.0 - 0.35 * day_offset,
             )

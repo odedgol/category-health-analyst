@@ -28,15 +28,17 @@ def _metrics_table_sql() -> str:
 
     One column per registered metric, all DOUBLE — column names come
     straight from `metrics.METRICS`, a fixed internal registry, not from
-    any request the system ever receives.
+    any request the system ever receives. Keyed by (category_id, site_id,
+    date): the same category has different numbers per site/region.
     """
     metric_columns = ",\n    ".join(f"{metric.key} DOUBLE" for metric in METRICS)
     return (
         "CREATE TABLE IF NOT EXISTS category_daily_metrics (\n"
         "    category_id INTEGER NOT NULL REFERENCES categories(category_id),\n"
+        "    site_id INTEGER NOT NULL,\n"
         "    date DATE NOT NULL,\n"
         f"    {metric_columns},\n"
-        "    PRIMARY KEY (category_id, date)\n"
+        "    PRIMARY KEY (category_id, site_id, date)\n"
         ")"
     )
 

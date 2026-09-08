@@ -26,6 +26,7 @@ from category_insights.mcp_server.tools import (
 )
 from category_insights.rag.notes_store import build_notes_index, get_or_create_notes_collection
 from category_insights.rag.retriever import ChromaNoteRetriever
+from tests.conftest import SEEDED_SITE_ID
 
 
 def test_list_categories_returns_every_seeded_category(seeded_repository: DuckDbRepository) -> None:
@@ -33,19 +34,14 @@ def test_list_categories_returns_every_seeded_category(seeded_repository: DuckDb
     assert [c.category_id for c in output.categories] == [1, 2]
 
 
-def test_list_metrics_returns_all_nine_metrics() -> None:
+def test_list_metrics_returns_all_four_metrics() -> None:
     output = ListMetricsCommand().execute(ListMetricsInput())
-    assert len(output.metrics) == 9
+    assert len(output.metrics) == 4
     assert {m.key for m in output.metrics} == {
-        "product_count",
-        "image_coverage_pct",
-        "multi_image_pct",
-        "taxonomy_alignment_pct",
-        "attribute_completeness_pct",
-        "price_anomaly_rate_pct",
-        "duplicate_rate_pct",
-        "orphan_rate_pct",
-        "freshness_pct",
+        "image_count",
+        "aligned_tax_count",
+        "not_aligned_tax_count",
+        "missing_category_exists",
     }
 
 
@@ -54,7 +50,8 @@ def test_get_metric_history_happy_path(seeded_repository: DuckDbRepository) -> N
     output = command.execute(
         GetMetricHistoryInput(
             category_id=1,
-            metric_key="image_coverage_pct",
+            site_id=SEEDED_SITE_ID,
+            metric_key="image_count",
             start_date=date(2026, 1, 1),
             end_date=date(2026, 1, 3),
         )
@@ -66,6 +63,7 @@ def test_get_metric_history_rejects_unknown_metric_key_at_construction() -> None
     with pytest.raises(ValidationError):
         GetMetricHistoryInput(
             category_id=1,
+            site_id=SEEDED_SITE_ID,
             metric_key="not_a_real_metric",
             start_date=date(2026, 1, 1),
             end_date=date(2026, 1, 3),
@@ -79,7 +77,8 @@ def test_get_metric_history_returns_empty_for_unknown_category(
     output = command.execute(
         GetMetricHistoryInput(
             category_id=999,
-            metric_key="image_coverage_pct",
+            site_id=SEEDED_SITE_ID,
+            metric_key="image_count",
             start_date=date(2026, 1, 1),
             end_date=date(2026, 1, 3),
         )
@@ -92,7 +91,8 @@ def test_compare_metric_periods_happy_path(seeded_repository: DuckDbRepository) 
     output = command.execute(
         CompareMetricPeriodsInput(
             category_id=1,
-            metric_key="image_coverage_pct",
+            site_id=SEEDED_SITE_ID,
+            metric_key="image_count",
             period_a_start=date(2026, 1, 1),
             period_a_end=date(2026, 1, 5),
             period_b_start=date(2026, 1, 6),
@@ -110,7 +110,8 @@ def test_compare_metric_periods_raises_when_no_data(seeded_repository: DuckDbRep
         command.execute(
             CompareMetricPeriodsInput(
                 category_id=2,
-                metric_key="image_coverage_pct",
+                site_id=SEEDED_SITE_ID,
+                metric_key="image_count",
                 period_a_start=date(2026, 1, 1),
                 period_a_end=date(2026, 1, 5),
                 period_b_start=date(2026, 1, 6),
@@ -123,6 +124,7 @@ def test_compare_metric_periods_rejects_unknown_metric_key_at_construction() -> 
     with pytest.raises(ValidationError):
         CompareMetricPeriodsInput(
             category_id=1,
+            site_id=SEEDED_SITE_ID,
             metric_key="not_a_real_metric",
             period_a_start=date(2026, 1, 1),
             period_a_end=date(2026, 1, 5),
@@ -133,16 +135,18 @@ def test_compare_metric_periods_rejects_unknown_metric_key_at_construction() -> 
 
 def test_get_category_snapshot_happy_path(seeded_repository: DuckDbRepository) -> None:
     command = GetCategorySnapshotCommand(seeded_repository)
-    output = command.execute(GetCategorySnapshotInput(category_id=1, as_of_date=date(2026, 1, 4)))
+    output = command.execute(
+        GetCategorySnapshotInput(category_id=1, site_id=SEEDED_SITE_ID, as_of_date=date(2026, 1, 4))
+    )
     assert output.snapshot is not None
-    assert output.snapshot.metrics["image_coverage_pct"] == pytest.approx(83.0)
+    assert output.snapshot.metrics["image_count"] == pytest.approx(83.0)
 
 
 def test_get_category_snapshot_returns_none_for_unknown_category(
     seeded_repository: DuckDbRepository,
 ) -> None:
     command = GetCategorySnapshotCommand(seeded_repository)
-    output = command.execute(GetCategorySnapshotInput(category_id=999))
+    output = command.execute(GetCategorySnapshotInput(category_id=999, site_id=SEEDED_SITE_ID))
     assert output.snapshot is None
 
 

@@ -3,9 +3,9 @@
 Every command's required port (`MetricsRepository`, `NoteRetriever`) is
 injected through its constructor — these classes never construct their
 own adapters, so a fake repository or retriever is all a test needs.
-Tools operate on `category_id: int`, never a free-text category name;
-resolving a human's loosely-worded mention to an id is the agent's job
-(`agent/category_resolution.py`), not this layer's.
+Tools operate on `category_id: int` (never a free-text category name —
+resolving a human's loosely-worded mention is the agent's job) and
+`site_id: int`, since the same category has different metrics per site.
 """
 
 from datetime import date
@@ -83,9 +83,10 @@ class ListMetricsCommand:
 
 
 class GetMetricHistoryInput(BaseModel):
-    """A daily value lookup for one metric, one category, over a date range."""
+    """A daily value lookup for one metric, one category, one site, over a date range."""
 
     category_id: int
+    site_id: int
     metric_key: MetricKey
     start_date: date
     end_date: date
@@ -94,15 +95,15 @@ class GetMetricHistoryInput(BaseModel):
 class GetMetricHistoryOutput(BaseModel):
     """Daily values for the requested metric, ordered by date.
 
-    Empty (not an error) if the category has no data in the requested
-    range — an expected outcome, not a failure.
+    Empty (not an error) if the category/site has no data in the
+    requested range — an expected outcome, not a failure.
     """
 
     points: list[MetricPoint]
 
 
 class GetMetricHistoryCommand:
-    """Fetches the daily history of one metric for one category over a date range."""
+    """Fetches the daily history of one metric for one category/site over a date range."""
 
     def __init__(self, repository: MetricsRepository) -> None:
         self._repository = repository
@@ -110,6 +111,7 @@ class GetMetricHistoryCommand:
     def execute(self, input_model: GetMetricHistoryInput) -> GetMetricHistoryOutput:
         points = self._repository.get_metric_series(
             category_id=input_model.category_id,
+            site_id=input_model.site_id,
             metric_key=input_model.metric_key,
             start=input_model.start_date,
             end=input_model.end_date,
@@ -126,6 +128,7 @@ class CompareMetricPeriodsInput(BaseModel):
     """
 
     category_id: int
+    site_id: int
     metric_key: MetricKey
     period_a_start: date
     period_a_end: date
@@ -140,7 +143,7 @@ class CompareMetricPeriodsOutput(BaseModel):
 
 
 class CompareMetricPeriodsCommand:
-    """Compares one metric's average value across two periods for one category.
+    """Compares one metric's average value across two periods for one category/site.
 
     Raises:
         MetricDataUnavailableError: if either period has no data — the
@@ -154,6 +157,7 @@ class CompareMetricPeriodsCommand:
     def execute(self, input_model: CompareMetricPeriodsInput) -> CompareMetricPeriodsOutput:
         comparison = self._repository.compare_periods(
             category_id=input_model.category_id,
+            site_id=input_model.site_id,
             metric_key=input_model.metric_key,
             period_a=DateRange(start=input_model.period_a_start, end=input_model.period_a_end),
             period_b=DateRange(start=input_model.period_b_start, end=input_model.period_b_end),
@@ -162,30 +166,33 @@ class CompareMetricPeriodsCommand:
 
 
 class GetCategorySnapshotInput(BaseModel):
-    """A single point-in-time read of every metric for one category.
+    """A single point-in-time read of every metric for one category/site.
 
     Defaults to the most recent available date when `as_of_date` is omitted.
     """
 
     category_id: int
+    site_id: int
     as_of_date: date | None = None
 
 
 class GetCategorySnapshotOutput(BaseModel):
-    """Every metric for the category on the resolved date, or `None` if there's no data at all."""
+    """Every metric for the category/site on the resolved date, or `None` if there's no data."""
 
     snapshot: CategorySnapshot | None
 
 
 class GetCategorySnapshotCommand:
-    """Fetches every metric for one category on one day (or the latest day, by default)."""
+    """Fetches every metric for one category/site on one day (or the latest day, by default)."""
 
     def __init__(self, repository: MetricsRepository) -> None:
         self._repository = repository
 
     def execute(self, input_model: GetCategorySnapshotInput) -> GetCategorySnapshotOutput:
         snapshot = self._repository.get_latest_snapshot(
-            category_id=input_model.category_id, as_of_date=input_model.as_of_date
+            category_id=input_model.category_id,
+            site_id=input_model.site_id,
+            as_of_date=input_model.as_of_date,
         )
         return GetCategorySnapshotOutput(snapshot=snapshot)
 
@@ -193,9 +200,10 @@ class GetCategorySnapshotCommand:
 class SearchCategoryNotesInput(BaseModel):
     """A retrieval-only search over the category-notes corpus for one category.
 
-    `query` should describe what needs explaining (e.g. the metric and
-    rough date range), not just repeat "why did this change" — the
-    retriever ranks by similarity to this text.
+    Notes aren't tracked per-site — they're analyst commentary about a
+    category overall. `query` should describe what needs explaining
+    (e.g. the metric and rough date range), not just repeat "why did
+    this change" — the retriever ranks by similarity to this text.
     """
 
     category_id: int

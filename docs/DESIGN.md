@@ -148,3 +148,41 @@ written after the fact.
   `OpenAIEmbeddingFunction` requires a non-empty key even to build the
   collection, which is chromadb's own validation, not a gap in this
   codebase.
+
+## Schema rework: real fields, multi-site
+
+- The original 9 metrics (`image_coverage_pct`, `taxonomy_alignment_pct`,
+  etc.) were invented percentages. Replaced with the fields a real
+  category-health feed actually tracks — `image_count`,
+  `aligned_tax_count`, `not_aligned_tax_count`, `missing_category_exists`
+  — based on direct feedback from real production experience with this
+  kind of data. Fewer, more concrete fields; nothing invented for
+  variety's sake.
+- **`site_id` is a real dimension of the daily metrics, not a label.**
+  `category_daily_metrics` is keyed by `(category_id, site_id, date)` —
+  the same category has different numbers per region, exactly like a
+  real multi-region catalog. `categories` itself stays site-independent
+  (a category is the same conceptual grouping everywhere; only its daily
+  numbers differ by site).
+- **Site resolution is deliberately *not* a Chain of Responsibility.**
+  `sites.resolve_site()` is one plain function doing exact/alias
+  matching over a fixed 5-entry registry. `agent.category_resolution`'s
+  4-handler chain earns its keep because categories are an open-ended,
+  aliased, fuzzy-matchable set; sites are a small closed list where a
+  chain would be ceremony without benefit — reusing the same machinery
+  everywhere "because it's the pattern already in the codebase" is
+  exactly the kind of over-application this project is trying to avoid.
+- **Site ids are eBay's real SiteID values** (developer.ebay.com's
+  SiteID-to-GlobalID reference: US=0, Canada=2, UK=3, Australia=15,
+  Germany=77), not an invented 0/1/2/3 scheme — a real, checkable
+  numbering is more honest mock data.
+- `missing_category_exists` is a 0/1 flag stored as the same `DOUBLE`
+  column type as every other metric (so it fits the existing schema/
+  formatting machinery unchanged) rather than a separate boolean column
+  — `TrendDirection`/arrow/delta logic all still apply correctly to it
+  unmodified (0 → 1 is `↑`/"worsened" for a lower-is-better metric).
+- This rework touched every layer built so far (domain models, DB schema
+  and queries, mock-data generation, the 2 fixture YAMLs, 3 MCP tool
+  inputs) rather than being isolated to one file — a reminder that the
+  metric/site shape is a foundational decision worth getting right
+  before building much on top of it, not a detail to defer.
