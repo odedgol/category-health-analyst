@@ -5,12 +5,16 @@ stubbed out ahead of time — a fixture with no current user is dead weight
 until something actually depends on it.
 """
 
+import hashlib
 from collections.abc import Iterator
 from datetime import date
 from pathlib import Path
 
+import chromadb
 import duckdb
 import pytest
+from chromadb.api.types import Documents, Embeddings
+from chromadb.api.types import EmbeddingFunction as ChromaEmbeddingFunction
 
 from category_insights.db.connection import bootstrap_schema
 from category_insights.db.repository import DuckDbRepository
@@ -78,3 +82,64 @@ def seeded_repository(temp_duckdb: duckdb.DuckDBPyConnection) -> DuckDbRepositor
         )
     repository.insert_metric_points(points)
     return repository
+
+
+class FakeEmbeddingFunction(ChromaEmbeddingFunction[Documents]):
+    """Deterministic, offline bag-of-words embedding — no network, no ML model.
+
+    Used by any test that needs a Chroma collection but must not depend on
+    a live OpenAI call or a downloaded model. Identical text always
+    produces an identical vector; texts sharing more words score more
+    similar under cosine distance — good enough to test retrieval logic
+    (filtering, thresholds, ordering), which doesn't depend on genuine
+    semantic quality. Subclasses chromadb's `EmbeddingFunction` (rather
+    than just duck-typing it) to inherit its default `embed_query`.
+    """
+
+    def __init__(self) -> None:
+        pass
+
+    _DIMENSIONS = 64
+
+    def __call__(self, input: Documents) -> Embeddings:  # noqa: A002 (name required by chromadb's protocol)
+        return [self._embed(text) for text in input]
+
+    def name(self) -> str:
+        return "fake-bag-of-words"
+
+    def get_config(self) -> dict[str, object]:
+        return {}
+
+    @staticmethod
+    def build_from_config(config: dict[str, object]) -> "FakeEmbeddingFunction":
+        return FakeEmbeddingFunction()
+
+    def _embed(self, text: str) -> list[float]:
+        vector = [0.0] * self._DIMENSIONS
+        for word in text.lower().split():
+            index = int(hashlib.md5(word.encode(), usedforsecurity=False).hexdigest(), 16)
+            vector[index % self._DIMENSIONS] += 1.0
+        norm = sum(component * component for component in vector) ** 0.5
+        if norm == 0:
+            return vector
+        return [component / norm for component in vector]
+
+
+@pytest.fixture
+def fake_embedding_function() -> FakeEmbeddingFunction:
+    return FakeEmbeddingFunction()
+
+
+@pytest.fixture
+def chroma_client() -> chromadb.ClientAPI:
+    """An isolated, in-memory Chroma client — fresh per test, nothing persisted to disk.
+
+    `chromadb.EphemeralClient()` calls with default settings share an
+    internal system cache within one process, so without an explicit
+    `reset()` a collection created in one test would still be visible
+    (and non-empty) in the next. `allow_reset=True` + `reset()` guarantees
+    each test actually starts from a clean slate.
+    """
+    client = chromadb.EphemeralClient(settings=chromadb.config.Settings(allow_reset=True))
+    client.reset()
+    return client
