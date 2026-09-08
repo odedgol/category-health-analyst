@@ -77,3 +77,35 @@ written after the fact.
   recovery window and stays at that partial offset — a dip that's
   findable both immediately ("did X drop last week?") and later ("why is
   X still not back to normal?"), without ever fully healing.
+
+## Sprint 3 — RAG layer
+
+- **Category filter before similarity, not after:** `ChromaNoteRetriever`
+  passes `where={"category_id": category_id}` into Chroma's own `query()`
+  call, so the ANN search itself never considers another category's
+  chunks — this is not a post-hoc Python filter over a larger result set.
+  `test_retrieve_filters_by_category_id_before_similarity` proves it: a
+  more textually similar note in a different category never leaks in.
+- **Test isolation surprised us:** `chromadb.EphemeralClient()` with
+  default settings shares an internal system cache across calls within
+  one process — a collection built in one test was still visible (with
+  its data) in the next, since both got the same in-memory system. Fixed
+  by constructing the client with `allow_reset=True` and calling
+  `.reset()` in the `chroma_client` fixture. Logged as an example of a
+  library behavior that isn't obvious from its name — "Ephemeral" reads
+  as "isolated," but isolation had to be forced explicitly.
+- **`FakeEmbeddingFunction` subclasses Chroma's `EmbeddingFunction`**
+  rather than just duck-typing its `__call__` — Chroma's runtime calls
+  `.embed_query()` and `.name()` internally, and `embed_query`'s default
+  implementation only exists if you actually inherit from the Protocol
+  class (a Protocol can serve as a concrete base, not just a structural
+  check). This fake never makes a network call or downloads a model, so
+  RAG tests stay fast and fully offline.
+- **Manual verification used a real local embedding model**
+  (`chromadb`'s bundled all-MiniLM-L6-v2 ONNX model), not the test fake —
+  no `OPENAI_API_KEY` was available in this environment. This exercises
+  every line of production code except `EmbeddingProvider`'s OpenAI call
+  itself; the README will flag that seeding the real index needs a key.
+- Chunking (`chunk_note_body`) splits on sentence boundaries only past
+  400 characters — every note in the curated corpus is short enough to
+  stay a single chunk, matching the spec's "most will be one chunk."

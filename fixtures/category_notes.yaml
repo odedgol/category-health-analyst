@@ -1,0 +1,82 @@
+# Curated analyst notes corpus for the RAG "why" path.
+#
+# Notes for the 4 categories with an injected event (see
+# fixtures/categories.yaml) explain that event, dated around it. A few
+# notes for categories WITHOUT an event are included too, so retrieval
+# sometimes correctly finds nothing relevant rather than always turning up
+# a dramatic explanation.
+notes:
+  # category 1 — Women's Running Shoes — taxonomy_alignment_pct event on day 80 (2026-07-31)
+  - category_id: 1
+    date: 2026-07-30
+    body: >
+      Taxonomy migration scheduled for tomorrow will reassign roughly
+      1,200 SKUs out of Women's Running Shoes into the new Athletic
+      Footwear leaf category. Expect a temporary dip in taxonomy
+      alignment until the mapping backfill completes.
+  - category_id: 1
+    date: 2026-08-05
+    body: >
+      Taxonomy alignment for Women's Running Shoes is still recovering
+      post-migration; the backfill team estimates full reconciliation by
+      mid-September.
+
+  # category 6 — Wireless Earbuds — image_coverage_pct event on day 45 (2026-06-26)
+  - category_id: 6
+    date: 2026-06-25
+    body: >
+      A new supplier was onboarded for the Wireless Earbuds bulk catalog
+      import. QA flagged that roughly 18% of the new SKUs are missing a
+      primary image pending a photography backlog.
+  - category_id: 6
+    date: 2026-07-02
+    body: >
+      The photography backlog for Wireless Earbuds is being worked
+      through in batches; image coverage is expected to recover
+      gradually over the next month.
+
+  # category 14 — Bicycle Helmets — orphan_rate_pct event on day 60 (2026-07-11)
+  - category_id: 14
+    date: 2026-07-10
+    body: >
+      A taxonomy rule change deprecated the legacy "Youth Helmets" leaf
+      category. SKUs previously mapped there are unmapped until the
+      replacement leaf categories are approved, temporarily raising the
+      orphan rate for Bicycle Helmets.
+
+  # category 16 — Air Fryers — price_anomaly_rate_pct event on day 100 (2026-08-20)
+  - category_id: 16
+    date: 2026-08-19
+    body: >
+      The price feed from the Air Fryers primary distributor started
+      returning stale or zero prices after their API migration; anomaly
+      detection is flagging a spike until the feed is fixed.
+  - category_id: 16
+    date: 2026-08-25
+    body: >
+      The distributor confirmed the Air Fryers price feed issue was a
+      currency-field regression on their end. A fix has been deployed;
+      the anomaly rate should normalize within a week.
+
+  # general-context notes for categories with no injected event
+  - category_id: 3
+    date: 2026-06-01
+    body: >
+      Vintage Vinyl Records relies on a small set of specialty suppliers
+      with inconsistent attribute data feeds. Attribute completeness for
+      this category has historically lagged other categories by design,
+      not because of any single incident.
+  - category_id: 9
+    date: 2026-05-20
+    body: >
+      The Espresso Machines catalog is manually curated by the
+      appliances team. Freshness metrics may look lower than automated
+      categories since updates are batched monthly rather than
+      continuously.
+  - category_id: 11
+    date: 2026-07-15
+    body: >
+      Leather Wallets has a known duplicate-listing issue from
+      marketplace sellers relisting the same SKU under slightly
+      different titles. The dedup team is evaluating a stricter matching
+      rule for next quarter.

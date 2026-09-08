@@ -2,6 +2,26 @@
 
 One entry per sprint merge, newest first.
 
+## Sprint 3 — RAG layer (unreleased)
+
+- Added `vectorstore.py`: `EmbeddingProvider` (the one place
+  `OPENAI_API_KEY`/`OPENAI_EMBEDDING_MODEL` are read to build a Chroma
+  embedding function) and `get_persistent_client()`, shared by this
+  sprint's notes collection and Sprint 5's category-resolution index.
+- Added `fixtures/category_notes.yaml`: 10 curated analyst notes — 7
+  explaining the 4 injected events from Sprint 2's fixture, 3 general-
+  context notes for categories with no event (so retrieval sometimes
+  honestly finds nothing).
+- Added `mock_notes.py` (loader), `rag/notes_store.py` (chunking +
+  `category_notes` collection build, cosine space), `rag/retriever.py`
+  (`ChromaNoteRetriever`, filters by `category_id` before ranking,
+  drops anything below `min_similarity`), and `scripts/seed_notes_index.py`.
+- Manually verified end-to-end with a real local embedding model (no
+  OpenAI key available in this environment): a "why did taxonomy
+  alignment drop" query for Women's Running Shoes correctly retrieves
+  and ranks both taxonomy-migration notes; the same style of query for a
+  category with zero notes correctly returns `[]`, not a guess.
+
 ## Sprint 2 — DB layer + mock data (unreleased)
 
 - Added `db/connection.py` (schema bootstrap/reset) and
