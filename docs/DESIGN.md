@@ -42,3 +42,38 @@ written after the fact.
   `pct_delta = (value_b - value_a) / value_a`.
 - `TrendDirection` uses `enum.StrEnum` (not `class X(str, Enum)`) per
   ruff's `UP042`.
+
+## Sprint 2 — DB layer + mock data
+
+- **Injection-safety story:** every caller-supplied *value* (category id,
+  date) reaches SQL only via a `?` placeholder. `metric_key` is the one
+  exception — it becomes a *column name*, and SQL has no placeholder
+  syntax for identifiers. The safe pattern for that case is an allowlist
+  check: `get_metric(metric_key)` (backed by the fixed `METRICS` registry)
+  runs before the key ever touches a query string, raising `KeyError`
+  immediately for anything not in the registry. `db/connection.py`'s
+  schema DDL uses the same allowlist (`METRICS`) to build column
+  definitions — also safe, since that registry is fixed at import time,
+  never derived from a request. `ruff`'s `S608` (possible SQL injection)
+  fires on both of these legitimate cases; each is annotated with a
+  `# noqa: S608` plus a comment explaining why, rather than disabled
+  globally.
+- `insert_categories`/`insert_metric_points` are on `DuckDbRepository`
+  but deliberately **not** part of the `MetricsRepository` protocol — the
+  agent and MCP tools only ever read, so write access isn't part of the
+  contract they depend on. Only `mock_data.py`'s seed path uses them,
+  and it depends on the concrete `DuckDbRepository` class for that reason.
+- `compare_periods` raises `MetricDataUnavailableError` (not a silent
+  `NULL`-derived NaN) when a period has no data — an expected, answerable
+  condition the agent is expected to catch at its boundary and turn into
+  an honest "I don't have data for that" response.
+- Mock data generation is a pure function of `(fixtures, days, end_date,
+  seed)` — no I/O beyond reading the fixture YAML — so it's fully unit
+  tested without a database. `scripts/seed_mock_data.py` is the only
+  place that wires generation to persistence, and it does so by calling
+  `DuckDbRepository` methods, never raw SQL.
+- Each injected event applies its full magnitude starting on its
+  configured day, then linearly recovers a fraction of itself over a
+  recovery window and stays at that partial offset — a dip that's
+  findable both immediately ("did X drop last week?") and later ("why is
+  X still not back to normal?"), without ever fully healing.

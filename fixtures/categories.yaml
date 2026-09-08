@@ -1,0 +1,95 @@
+# Curated category list for mock data generation.
+#
+# `event`, when present, injects a sharp, deliberate step change in one
+# metric on a specific day (0 = first day generated, `days - 1` = most
+# recent/"today"). `fixtures/category_notes.yaml` (Sprint 3) references
+# these same category_id/day pairs so the RAG corpus has a real event to
+# explain — this file is the single source of truth both draw from.
+categories:
+  - category_id: 1
+    name: "Women's Running Shoes"
+    aliases: ["sneakers", "running sneakers", "running shoes"]
+    event:
+      metric_key: taxonomy_alignment_pct
+      day: 80
+      magnitude: -15.0
+
+  - category_id: 2
+    name: "Laptop Chargers"
+    aliases: ["laptop power adapters", "charger cables"]
+
+  - category_id: 3
+    name: "Vintage Vinyl Records"
+    aliases: []
+
+  - category_id: 4
+    name: "Cast Iron Cookware"
+    aliases: []
+
+  - category_id: 5
+    name: "Men's Dress Shirts"
+    aliases: []
+
+  - category_id: 6
+    name: "Wireless Earbuds"
+    aliases: ["bluetooth earbuds", "wireless headphones"]
+    event:
+      metric_key: image_coverage_pct
+      day: 45
+      magnitude: -20.0
+
+  - category_id: 7
+    name: "Outdoor Camping Tents"
+    aliases: []
+
+  - category_id: 8
+    name: "Kids' Building Blocks"
+    aliases: []
+
+  - category_id: 9
+    name: "Espresso Machines"
+    aliases: []
+
+  - category_id: 10
+    name: "Yoga Mats"
+    aliases: []
+
+  - category_id: 11
+    name: "Leather Wallets"
+    aliases: []
+
+  - category_id: 12
+    name: "Garden Hand Tools"
+    aliases: []
+
+  - category_id: 13
+    name: "Ceramic Dinnerware"
+    aliases: []
+
+  - category_id: 14
+    name: "Bicycle Helmets"
+    aliases: []
+    event:
+      metric_key: orphan_rate_pct
+      day: 60
+      magnitude: 12.0
+
+  - category_id: 15
+    name: "Standing Desks"
+    aliases: []
+
+  - category_id: 16
+    name: "Air Fryers"
+    aliases: ["air fryer ovens"]
+    event:
+      metric_key: price_anomaly_rate_pct
+      day: 100
+      magnitude: 18.0
+
+  - category_id: 17
+    name: "Wool Sweaters"
+    aliases: []
+
+  - category_id: 18
+    name: "Board Games"
+    aliases: []
