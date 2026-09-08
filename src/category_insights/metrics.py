@@ -9,6 +9,9 @@ codebase names an individual metric.
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Annotated
+
+from pydantic import AfterValidator
 
 
 class TrendDirection(StrEnum):
@@ -114,3 +117,20 @@ def get_metric(metric_key: str) -> MetricDefinition:
             let it propagate as a raw KeyError.
     """
     return METRICS_BY_KEY[metric_key]
+
+
+def _validate_metric_key(value: str) -> str:
+    if value not in METRICS_BY_KEY:
+        valid_keys = ", ".join(sorted(METRICS_BY_KEY))
+        raise ValueError(f"Unknown metric_key {value!r}. Valid keys: {valid_keys}.")
+    return value
+
+
+MetricKey = Annotated[str, AfterValidator(_validate_metric_key)]
+"""A metric key validated against the registry at model-construction time.
+
+Used by every Pydantic input model that takes a metric key (MCP tool
+inputs) so an unknown key is rejected with a clear `ValidationError`
+before any repository or SQL code runs — one reusable check instead of
+re-validating in each command.
+"""

@@ -2,6 +2,33 @@
 
 One entry per sprint merge, newest first.
 
+## Sprint 4 — MCP server (unreleased)
+
+- Added `bootstrap.py` (`AdapterBundle` + `build_adapters()`) — the
+  Factory/composition root that constructs the real `DuckDbRepository`
+  and `ChromaNoteRetriever` once, used by `server.py` (and, from Sprint
+  5, `ui/app.py`).
+- Added `metrics.MetricKey` — a `Pydantic` `Annotated` type validating a
+  metric key against the registry at model-construction time, so an
+  unknown key is rejected with a clear `ValidationError` before any
+  repository/SQL code runs. Reused by every tool input that takes one.
+- Added `mcp_server/tools.py`: the 6 tools as Command classes
+  (`ListCategoriesCommand`, `ListMetricsCommand`,
+  `GetMetricHistoryCommand`, `CompareMetricPeriodsCommand`,
+  `GetCategorySnapshotCommand`, `SearchCategoryNotesCommand`), each with
+  its own Pydantic input/output models and ports injected via
+  constructor.
+- Added `mcp_server/server.py`, wiring the 6 commands to the `mcp` SDK
+  (`MCPServer`) — wiring only, no logic. Decided (and documented in
+  `docs/DESIGN.md`): the agent will call these Command classes directly,
+  in-process, not over a live MCP transport; `server.py` stays runnable
+  standalone for external MCP clients.
+- Manually verified end-to-end through the real MCP server transport
+  (`call_tool`): `list_categories`, `get_metric_history`, and
+  `compare_metric_periods` all returned correct real data from a seeded
+  DB; `search_category_notes` was confirmed correctly wired, failing
+  only on the expected real-OpenAI 401 from a dummy test key.
+
 ## Sprint 3 — RAG layer (unreleased)
 
 - Added `vectorstore.py`: `EmbeddingProvider` (the one place

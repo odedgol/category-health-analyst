@@ -109,3 +109,42 @@ written after the fact.
 - Chunking (`chunk_note_body`) splits on sentence boundaries only past
   400 characters — every note in the curated corpus is short enough to
   stay a single chunk, matching the spec's "most will be one chunk."
+
+## Sprint 4 — MCP server
+
+- **Agent-to-tool call path: in-process, not a live MCP transport.**
+  `agent/graph.py` (Sprint 5) will call the Command classes in
+  `mcp_server/tools.py` directly, using the same `AdapterBundle`
+  constructed once at startup — it will not spawn or talk to
+  `server.py` over stdio/HTTP. Rationale: `tools.py`/`server.py` were
+  already split specifically so the tool logic is callable and testable
+  without a transport; the real hexagonal boundary that matters is the
+  domain ports, not the MCP wire format, and `mcp_server/tools.py` is
+  itself just a thin adapter over those ports — same as a web app calling
+  its own service layer instead of round-tripping through its own REST
+  API. `server.py` stays fully runnable standalone
+  (`uv run python -m category_insights.mcp_server.server`) for real
+  external MCP clients (Claude Desktop, the MCP inspector), and is
+  exercised by the same manual `call_tool` checks below.
+- **`MetricKey` validates at input-model construction, not inside
+  `execute()`.** An `Annotated[str, AfterValidator(...)]` type in
+  `metrics.py`, reused by every tool input that takes a metric key —
+  `GetMetricHistoryInput(metric_key="bogus")` raises `ValidationError`
+  immediately, before a command, a repository, or SQL is ever involved.
+  One validator, defined once, rather than re-checking in each command.
+- **`MetricDataUnavailableError` is left to propagate** from
+  `CompareMetricPeriodsCommand`, not caught and re-wrapped — there's
+  nothing a generic catch-and-reraise here would add. The agent (Sprint
+  5) is the layer that's expected to catch it and compose an honest
+  answer, since only it has the context (the user's question) to decide
+  how to phrase "no data for that."
+- **Manually verified through the real MCP transport**, not just direct
+  `.execute()` calls: `build_server()` registers all 6 tools;
+  `server.call_tool(...)` against a seeded DB returned correct data for
+  `list_categories`, `get_metric_history`, and `compare_metric_periods`.
+  `search_category_notes` was confirmed correctly wired end-to-end but
+  could only be exercised up to a real (expected) 401 from OpenAI, since
+  this environment has no `OPENAI_API_KEY` — constructing
+  `OpenAIEmbeddingFunction` requires a non-empty key even to build the
+  collection, which is chromadb's own validation, not a gap in this
+  codebase.
