@@ -27,6 +27,17 @@ from category_insights.domain.models import (
 T = TypeVar("T")
 
 
+class MetricDataUnavailableError(Exception):
+    """Raised when a requested metric comparison has no data in one or both periods.
+
+    This is an expected, answerable outcome ("I don't have data for that
+    date range"), not a bug — callers at a system boundary (MCP tools, the
+    agent) are expected to catch this specific exception and turn it into
+    an honest user-facing response rather than let it propagate as a raw
+    error or, worse, silently compute a comparison against missing data.
+    """
+
+
 @runtime_checkable
 class MetricsRepository(Protocol):
     """Read access to category master data and their daily metric snapshots.
@@ -53,6 +64,10 @@ class MetricsRepository(Protocol):
         """Compare a metric's average value across two periods.
 
         `period_a` is treated as the earlier/baseline period.
+
+        Raises:
+            MetricDataUnavailableError: if either period has no data points
+                for this category/metric.
         """
         ...
 
