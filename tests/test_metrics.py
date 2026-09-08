@@ -13,22 +13,17 @@ def test_metric_keys_are_unique() -> None:
 def test_every_metric_has_a_display_name_and_unit() -> None:
     for metric in METRICS:
         assert metric.display_name
-        assert metric.unit in {"%", "count"}
+        assert metric.unit in {"count", "flag"}
         assert metric.description
 
 
 @pytest.mark.parametrize(
     ("metric_key", "expected_direction"),
     [
-        ("product_count", TrendDirection.HIGHER_IS_BETTER),
-        ("image_coverage_pct", TrendDirection.HIGHER_IS_BETTER),
-        ("multi_image_pct", TrendDirection.HIGHER_IS_BETTER),
-        ("taxonomy_alignment_pct", TrendDirection.HIGHER_IS_BETTER),
-        ("attribute_completeness_pct", TrendDirection.HIGHER_IS_BETTER),
-        ("freshness_pct", TrendDirection.HIGHER_IS_BETTER),
-        ("price_anomaly_rate_pct", TrendDirection.LOWER_IS_BETTER),
-        ("duplicate_rate_pct", TrendDirection.LOWER_IS_BETTER),
-        ("orphan_rate_pct", TrendDirection.LOWER_IS_BETTER),
+        ("image_count", TrendDirection.HIGHER_IS_BETTER),
+        ("aligned_tax_count", TrendDirection.HIGHER_IS_BETTER),
+        ("not_aligned_tax_count", TrendDirection.LOWER_IS_BETTER),
+        ("missing_category_exists", TrendDirection.LOWER_IS_BETTER),
     ],
 )
 def test_trend_direction_matches_spec(metric_key: str, expected_direction: TrendDirection) -> None:
@@ -40,5 +35,5 @@ def test_get_metric_raises_key_error_for_unknown_metric() -> None:
         get_metric("not_a_real_metric")
 
 
-def test_registry_has_exactly_nine_metrics() -> None:
-    assert len(METRICS) == 9
+def test_registry_has_exactly_four_metrics() -> None:
+    assert len(METRICS) == 4

@@ -54,7 +54,9 @@ def build_server(settings: Settings | None = None) -> MCPServer:
             "(list_categories, list_metrics, get_metric_history, "
             "compare_metric_periods, get_category_snapshot) and retrieval-only "
             "note search (search_category_notes). Category ids come from "
-            "list_categories — these tools take category_id, never a free-text name."
+            "list_categories — these tools take category_id, never a free-text name. "
+            "Metric tools also take site_id (0=US, 2=Canada, 3=UK, 15=Australia, "
+            "77=Germany) since the same category has different numbers per site."
         ),
     )
 
@@ -70,12 +72,13 @@ def build_server(settings: Settings | None = None) -> MCPServer:
 
     @server.tool()
     def get_metric_history(
-        category_id: int, metric_key: str, start_date: date, end_date: date
+        category_id: int, site_id: int, metric_key: str, start_date: date, end_date: date
     ) -> GetMetricHistoryOutput:
-        """Fetch the daily history of one metric for one category over a date range."""
+        """Fetch the daily history of one metric for one category/site over a date range."""
         return get_metric_history_command.execute(
             GetMetricHistoryInput(
                 category_id=category_id,
+                site_id=site_id,
                 metric_key=metric_key,
                 start_date=start_date,
                 end_date=end_date,
@@ -85,6 +88,7 @@ def build_server(settings: Settings | None = None) -> MCPServer:
     @server.tool()
     def compare_metric_periods(
         category_id: int,
+        site_id: int,
         metric_key: str,
         period_a_start: date,
         period_a_end: date,
@@ -95,6 +99,7 @@ def build_server(settings: Settings | None = None) -> MCPServer:
         return compare_metric_periods_command.execute(
             CompareMetricPeriodsInput(
                 category_id=category_id,
+                site_id=site_id,
                 metric_key=metric_key,
                 period_a_start=period_a_start,
                 period_a_end=period_a_end,
@@ -105,11 +110,13 @@ def build_server(settings: Settings | None = None) -> MCPServer:
 
     @server.tool()
     def get_category_snapshot(
-        category_id: int, as_of_date: date | None = None
+        category_id: int, site_id: int, as_of_date: date | None = None
     ) -> GetCategorySnapshotOutput:
-        """Fetch every metric for one category on one day (defaults to the latest available day)."""
+        """Fetch every metric for one category/site on one day (default: the latest available)."""
         return get_category_snapshot_command.execute(
-            GetCategorySnapshotInput(category_id=category_id, as_of_date=as_of_date)
+            GetCategorySnapshotInput(
+                category_id=category_id, site_id=site_id, as_of_date=as_of_date
+            )
         )
 
     @server.tool()

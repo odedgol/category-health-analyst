@@ -5,6 +5,11 @@ tools, the answer formatter) imports from here rather than hardcoding a
 metric key or its trend direction. Adding a metric later means adding one
 entry to `METRICS` plus one column in the DB schema — nothing else in the
 codebase names an individual metric.
+
+Fields mirror what a real category-health feed actually tracks: raw
+counts per category per site per day (image count, taxonomy-alignment
+counts, whether a missing-category problem exists) — not invented
+percentage metrics.
 """
 
 from dataclasses import dataclass
@@ -27,80 +32,42 @@ class MetricDefinition:
 
     key: str
     display_name: str
-    unit: str  # "%" or "count"
+    unit: str  # "count" or "flag" (0/1)
     description: str
     trend_direction: TrendDirection
 
 
 METRICS: tuple[MetricDefinition, ...] = (
     MetricDefinition(
-        key="product_count",
-        display_name="Product count",
+        key="image_count",
+        display_name="Image count",
         unit="count",
+        description="Total number of product images in this category and site.",
+        trend_direction=TrendDirection.HIGHER_IS_BETTER,
+    ),
+    MetricDefinition(
+        key="aligned_tax_count",
+        display_name="Aligned taxonomy count",
+        unit="count",
+        description="Number of products correctly mapped to a valid leaf category.",
+        trend_direction=TrendDirection.HIGHER_IS_BETTER,
+    ),
+    MetricDefinition(
+        key="not_aligned_tax_count",
+        display_name="Not-aligned taxonomy count",
+        unit="count",
+        description="Number of products not mapped to a valid leaf category.",
+        trend_direction=TrendDirection.LOWER_IS_BETTER,
+    ),
+    MetricDefinition(
+        key="missing_category_exists",
+        display_name="Missing category exists",
+        unit="flag",
         description=(
-            "Total products in the category on that day. Drops often explain "
-            "other metric dips — e.g. products moved to another category."
+            "Whether at least one product in this category/site has no category "
+            "mapping at all (1 = yes, 0 = no)."
         ),
-        trend_direction=TrendDirection.HIGHER_IS_BETTER,
-    ),
-    MetricDefinition(
-        key="image_coverage_pct",
-        display_name="Image coverage",
-        unit="%",
-        description="Percentage of products with at least one image.",
-        trend_direction=TrendDirection.HIGHER_IS_BETTER,
-    ),
-    MetricDefinition(
-        key="multi_image_pct",
-        display_name="Multi-image coverage",
-        unit="%",
-        description="Percentage of products with at least two images.",
-        trend_direction=TrendDirection.HIGHER_IS_BETTER,
-    ),
-    MetricDefinition(
-        key="taxonomy_alignment_pct",
-        display_name="Taxonomy alignment",
-        unit="%",
-        description="Percentage of products correctly mapped to a valid leaf category.",
-        trend_direction=TrendDirection.HIGHER_IS_BETTER,
-    ),
-    MetricDefinition(
-        key="attribute_completeness_pct",
-        display_name="Attribute completeness",
-        unit="%",
-        description=(
-            "Percentage of products with all required attributes populated "
-            "(brand, size, color, etc.)."
-        ),
-        trend_direction=TrendDirection.HIGHER_IS_BETTER,
-    ),
-    MetricDefinition(
-        key="price_anomaly_rate_pct",
-        display_name="Price anomaly rate",
-        unit="%",
-        description="Percentage of products with a missing or outlier price vs. category median.",
         trend_direction=TrendDirection.LOWER_IS_BETTER,
-    ),
-    MetricDefinition(
-        key="duplicate_rate_pct",
-        display_name="Duplicate rate",
-        unit="%",
-        description="Percentage of products likely duplicated within the category.",
-        trend_direction=TrendDirection.LOWER_IS_BETTER,
-    ),
-    MetricDefinition(
-        key="orphan_rate_pct",
-        display_name="Orphan rate",
-        unit="%",
-        description="Percentage of products with no valid leaf category at all.",
-        trend_direction=TrendDirection.LOWER_IS_BETTER,
-    ),
-    MetricDefinition(
-        key="freshness_pct",
-        display_name="Freshness",
-        unit="%",
-        description="Percentage of products added or updated in the last 7 days.",
-        trend_direction=TrendDirection.HIGHER_IS_BETTER,
     ),
 )
 

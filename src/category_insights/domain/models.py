@@ -26,16 +26,17 @@ class Category(BaseModel):
 
 
 class MetricPoint(BaseModel):
-    """One metric's value for one category on one day."""
+    """One metric's value for one category, at one site, on one day."""
 
     category_id: int
+    site_id: int
     metric_key: str
     date: date
     value: float
 
 
 class CategorySnapshot(BaseModel):
-    """All metrics for one category on one day.
+    """All metrics for one category at one site on one day.
 
     Metrics are a `dict[str, float]` keyed by metric key rather than one
     field per metric, so adding a metric to the registry never requires a
@@ -43,6 +44,7 @@ class CategorySnapshot(BaseModel):
     """
 
     category_id: int
+    site_id: int
     date: date
     metrics: dict[str, float]
 
@@ -76,6 +78,7 @@ class PeriodComparison(BaseModel):
     """
 
     category_id: int
+    site_id: int
     metric_key: str
     period_a: DateRange
     period_b: DateRange
@@ -118,6 +121,7 @@ class QueryIntent(BaseModel):
     """
 
     category_mention: str | None
+    site_mention: str | None = None
     metric_keys: list[str] = Field(default_factory=list)
     date_range: DateRange | None = None
     comparison_range: DateRange | None = None

@@ -49,35 +49,44 @@ class MetricsRepository(Protocol):
     """
 
     def list_categories(self) -> list[Category]:
-        """Return every known category with its id, display name, and aliases."""
+        """Return every known category with its id, display name, and aliases.
+
+        Categories are site-independent — the same category exists across
+        every site, only its daily metrics differ by site.
+        """
         ...
 
     def get_metric_series(
-        self, category_id: int, metric_key: str, start: date, end: date
+        self, category_id: int, site_id: int, metric_key: str, start: date, end: date
     ) -> list[MetricPoint]:
-        """Return the daily values of one metric for one category, inclusive of both dates."""
+        """Return the daily values of one metric for one category/site, inclusive of both dates."""
         ...
 
     def compare_periods(
-        self, category_id: int, metric_key: str, period_a: DateRange, period_b: DateRange
+        self,
+        category_id: int,
+        site_id: int,
+        metric_key: str,
+        period_a: DateRange,
+        period_b: DateRange,
     ) -> PeriodComparison:
-        """Compare a metric's average value across two periods.
+        """Compare a metric's average value across two periods, for one category/site.
 
         `period_a` is treated as the earlier/baseline period.
 
         Raises:
             MetricDataUnavailableError: if either period has no data points
-                for this category/metric.
+                for this category/site/metric.
         """
         ...
 
     def get_latest_snapshot(
-        self, category_id: int, as_of_date: date | None = None
+        self, category_id: int, site_id: int, as_of_date: date | None = None
     ) -> CategorySnapshot | None:
-        """Return every metric for a category on `as_of_date` (or the latest date if omitted).
+        """Return every metric for a category/site on `as_of_date` (or the latest date if omitted).
 
-        Returns `None` if the category has no snapshot on or before that
-        date, rather than raising — a missing snapshot is an expected,
+        Returns `None` if there's no snapshot on or before that date,
+        rather than raising — a missing snapshot is an expected,
         answerable outcome ("I don't have data for that"), not an error.
         """
         ...

@@ -1,18 +1,19 @@
 # Curated category list for mock data generation.
 #
 # `event`, when present, injects a sharp, deliberate step change in one
-# metric on a specific day (0 = first day generated, `days - 1` = most
-# recent/"today"). `fixtures/category_notes.yaml` (Sprint 3) references
-# these same category_id/day pairs so the RAG corpus has a real event to
-# explain — this file is the single source of truth both draw from.
+# metric, at one site (site_id defaults to 0/US), on a specific day
+# (0 = first day generated, `days - 1` = most recent/"today").
+# `fixtures/category_notes.yaml` references these same category_id/day
+# pairs so the RAG corpus has a real event to explain — this file is the
+# single source of truth both draw from.
 categories:
   - category_id: 1
     name: "Women's Running Shoes"
     aliases: ["sneakers", "running sneakers", "running shoes"]
     event:
-      metric_key: taxonomy_alignment_pct
+      metric_key: aligned_tax_count
       day: 80
-      magnitude: -15.0
+      magnitude: -150.0
 
   - category_id: 2
     name: "Laptop Chargers"
@@ -34,9 +35,9 @@ categories:
     name: "Wireless Earbuds"
     aliases: ["bluetooth earbuds", "wireless headphones"]
     event:
-      metric_key: image_coverage_pct
+      metric_key: image_count
       day: 45
-      magnitude: -20.0
+      magnitude: -300.0
 
   - category_id: 7
     name: "Outdoor Camping Tents"
@@ -70,9 +71,9 @@ categories:
     name: "Bicycle Helmets"
     aliases: []
     event:
-      metric_key: orphan_rate_pct
+      metric_key: missing_category_exists
       day: 60
-      magnitude: 12.0
+      magnitude: 1.0
 
   - category_id: 15
     name: "Standing Desks"
@@ -82,9 +83,9 @@ categories:
     name: "Air Fryers"
     aliases: ["air fryer ovens"]
     event:
-      metric_key: price_anomaly_rate_pct
+      metric_key: not_aligned_tax_count
       day: 100
-      magnitude: 18.0
+      magnitude: 80.0
 
   - category_id: 17
     name: "Wool Sweaters"
