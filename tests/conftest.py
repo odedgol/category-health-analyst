@@ -148,3 +148,56 @@ def chroma_client() -> chromadb.ClientAPI:
     client = chromadb.EphemeralClient(settings=chromadb.config.Settings(allow_reset=True))
     client.reset()
     return client
+
+
+class _FakeStructuredRunnable:
+    def __init__(self, response: object) -> None:
+        self._response = response
+
+    def invoke(self, messages: object) -> object:
+        return self._response
+
+
+class FakeChatModel:
+    """Test double satisfying `domain.ports.ChatModel` — no network call, ever.
+
+    Configure a canned response per output schema via
+    `set_structured_response`, and a canned plain-text reply via
+    `set_invoke_response`. Calling `.with_structured_output()` for a
+    schema with no configured response raises `AssertionError` — this is
+    what lets a test prove an LLM call for a given schema was (or wasn't)
+    made, e.g. that a fast-path-recognized date phrase never reaches the
+    LLM date-parsing fallback.
+    """
+
+    def __init__(self) -> None:
+        self._structured_responses: dict[type, object] = {}
+        self._invoke_response: object | None = None
+        self.structured_call_counts: dict[type, int] = {}
+        self.invoke_call_count = 0
+
+    def set_structured_response(self, schema: type, response: object) -> None:
+        self._structured_responses[schema] = response
+
+    def set_invoke_response(self, response: object) -> None:
+        self._invoke_response = response
+
+    def invoke(self, messages: object) -> object:
+        self.invoke_call_count += 1
+        if self._invoke_response is None:
+            raise AssertionError("FakeChatModel.invoke() called with no response configured.")
+        return self._invoke_response
+
+    def with_structured_output(self, schema: type) -> _FakeStructuredRunnable:
+        if schema not in self._structured_responses:
+            raise AssertionError(
+                f"FakeChatModel has no configured structured response for {schema} "
+                "— unexpected LLM call."
+            )
+        self.structured_call_counts[schema] = self.structured_call_counts.get(schema, 0) + 1
+        return _FakeStructuredRunnable(self._structured_responses[schema])
+
+
+@pytest.fixture
+def fake_chat_model() -> FakeChatModel:
+    return FakeChatModel()

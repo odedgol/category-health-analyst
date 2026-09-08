@@ -25,13 +25,17 @@ from category_insights.metrics import METRICS, TrendDirection, get_metric
 
 
 class DuckDbRepository:
-    """`MetricsRepository` implementation backed by a local DuckDB file.
+    """`MetricsRepository` and `SiteAliasStore` implementation backed by a local DuckDB file.
 
     Also exposes bulk-insert methods (`insert_categories`,
     `insert_metric_points`) that aren't part of `MetricsRepository` — the
     agent and MCP tools never need to write data, only the mock-data seed
     script does, so write access is deliberately not part of the port the
-    rest of the system depends on.
+    rest of the system depends on. `SiteAliasStore`'s methods, by
+    contrast, *are* meant for the agent to call directly (via
+    `agent.site_resolution.LearnedSiteAliases`) — learning a new site
+    alias is a normal part of answering a question, not an admin/seeding
+    operation.
     """
 
     def __init__(self, connection: duckdb.DuckDBPyConnection) -> None:
@@ -191,3 +195,16 @@ class DuckDbRepository:
             for (category_id, site_id, snapshot_date), values in by_key.items()
         ]
         self._connection.executemany(query, rows)
+
+    def list_learned_aliases(self) -> dict[str, int]:
+        rows = self._connection.execute(
+            "SELECT alias, site_id FROM learned_site_aliases"
+        ).fetchall()
+        return dict(rows)
+
+    def save_learned_alias(self, alias: str, site_id: int) -> None:
+        self._connection.execute(
+            "INSERT INTO learned_site_aliases (alias, site_id) VALUES (?, ?) "
+            "ON CONFLICT (alias) DO UPDATE SET site_id = EXCLUDED.site_id",
+            [alias, site_id],
+        )

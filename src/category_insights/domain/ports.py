@@ -128,6 +128,28 @@ class CategoryResolverIndex(Protocol):
         ...
 
 
+@runtime_checkable
+class SiteAliasStore(Protocol):
+    """Persists site aliases learned from an LLM classification, across restarts.
+
+    `agent.site_resolution.resolve_site_with_learning` is the only
+    consumer: it checks `sites.match_known_site` first, then a learned
+    alias, and only calls the LLM — then writes through here — when
+    neither matches. Kept as its own small port rather than folded into
+    `MetricsRepository`, since it's a different concern (site reference
+    data, not category metrics) with a different lifecycle (grows over
+    time from LLM answers, not seeded from a fixture).
+    """
+
+    def list_learned_aliases(self) -> dict[str, int]:
+        """Return every learned alias -> site_id mapping, for loading into memory at startup."""
+        ...
+
+    def save_learned_alias(self, alias: str, site_id: int) -> None:
+        """Persist one alias -> site_id mapping. Upsert: safe to call again for the same alias."""
+        ...
+
+
 class ChatModel(Protocol):
     """The minimal surface of an LLM the agent depends on.
 

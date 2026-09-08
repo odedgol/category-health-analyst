@@ -56,21 +56,37 @@ def get_site(site_id: int) -> Site:
     return SITES_BY_ID[site_id]
 
 
-def resolve_site(mention: str | None) -> int:
-    """Resolve a site mention (e.g. "Canada", "us") to a site_id.
+def match_known_site(mention: str) -> int | None:
+    """Exact site name or built-in alias match. `None` if nothing matches.
 
     Plain exact/alias matching, not a Chain of Responsibility — sites are
     a small, closed set (five regions), so there's no fuzzy-matching case
     worth the added machinery that `agent.category_resolution` needs for
-    an open-ended, aliased category list. Defaults to `DEFAULT_SITE_ID`
-    when `mention` is `None` or unrecognized, rather than asking for
-    clarification — an unrecognized site is far less consequential than
-    an unrecognized category.
+    an open-ended, aliased category list.
+
+    Returning `None` on failure (rather than a default) is what lets
+    `agent.site_resolution.resolve_site_with_learning` tell "matched" apart
+    from "unrecognized, ask the LLM" — `resolve_site` below collapses that
+    distinction back down for callers that don't need it.
     """
-    if mention is None:
-        return DEFAULT_SITE_ID
     normalized = mention.strip().lower()
     for site in SITES:
         if site.name.lower() == normalized:
             return site.site_id
-    return _SITE_ID_BY_ALIAS.get(normalized, DEFAULT_SITE_ID)
+    return _SITE_ID_BY_ALIAS.get(normalized)
+
+
+def resolve_site(mention: str | None) -> int:
+    """Resolve a site mention (e.g. "Canada", "us") to a site_id.
+
+    Defaults to `DEFAULT_SITE_ID` when `mention` is `None` or unrecognized
+    by the static registry. For a version that asks an LLM (and learns
+    the answer) instead of silently defaulting on an unrecognized
+    mention, see `agent.site_resolution.resolve_site_with_learning`.
+    """
+    if mention is None:
+        return DEFAULT_SITE_ID
+    matched = match_known_site(mention)
+    # Explicit None check, not `matched or DEFAULT_SITE_ID` — site_id 0 (US) is
+    # falsy, and `0 or DEFAULT_SITE_ID` would silently discard a real match.
+    return matched if matched is not None else DEFAULT_SITE_ID

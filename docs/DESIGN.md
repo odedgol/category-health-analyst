@@ -186,3 +186,37 @@ written after the fact.
   inputs) rather than being isolated to one file — a reminder that the
   metric/site shape is a foundational decision worth getting right
   before building much on top of it, not a detail to defer.
+
+## Self-learning site resolution
+
+- **`match_known_site` returns `None` on failure; `resolve_site` still
+  defaults.** Splitting these apart (rather than adding a `strict: bool`
+  flag to one function) is what lets
+  `agent.site_resolution.resolve_site_with_learning` tell "the static
+  registry didn't match" apart from "nothing at all was said" — those
+  are different situations (one is worth asking an LLM about, the other
+  isn't) that a single boolean-return function would conflate.
+- **An uncertain LLM answer is never cached.** `SiteClassification.site_id
+  = None`, or a `site_id` the model returns that isn't actually in
+  `SITES_BY_ID` (never trusted blindly — always re-checked against the
+  registry), both fall back to the default *without* writing to
+  `learned_site_aliases`. Caching a wrong or "no answer" guess would
+  permanently lock in a bad mapping — worse than asking the LLM again
+  next time the same phrase comes up.
+- **`--reset` (in `seed_mock_data.py`) does not touch
+  `learned_site_aliases`.** Categories and metrics are mock data, fully
+  regenerable from the seed; learned aliases are real accumulated value
+  from real questions asked, not mock data, and wiping them on every
+  reset would defeat the point of learning them at all.
+- **This is still a plain function, not a Chain of Responsibility class**,
+  even though it now has an LLM fallback step like `date_ranges.py` does.
+  The similarity to `date_ranges.py`'s chain is structural (fast path,
+  then LLM), not a reason to force the same class machinery — five sites
+  is still a small enough closed set that a `Handler` per step would be
+  ceremony, not clarity.
+- **Manually verified against the real DuckDB file**, not just the
+  in-memory test doubles: resolving an unrecognized site persists it to
+  `learned_site_aliases`; a *fresh* `LearnedSiteAliases` instance
+  (standing in for a new process reading the same file) resolves the
+  same mention with zero LLM calls; `--reset` regenerates mock data but
+  leaves the learned table untouched.

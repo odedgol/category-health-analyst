@@ -10,8 +10,11 @@ directly except the adapter modules themselves (`db/`, `rag/`,
 
 from dataclasses import dataclass
 
+from category_insights.agent.llm import ChatModelProvider
+from category_insights.agent.site_resolution import LearnedSiteAliases
 from category_insights.db.connection import connect
 from category_insights.db.repository import DuckDbRepository
+from category_insights.domain.ports import ChatModel
 from category_insights.rag.notes_store import get_or_create_notes_collection
 from category_insights.rag.retriever import ChromaNoteRetriever
 from category_insights.settings import Settings
@@ -30,6 +33,8 @@ class AdapterBundle:
 
     repository: DuckDbRepository
     note_retriever: ChromaNoteRetriever
+    chat_model: ChatModel
+    learned_site_aliases: LearnedSiteAliases
 
 
 def build_adapters(settings: Settings) -> AdapterBundle:
@@ -37,7 +42,7 @@ def build_adapters(settings: Settings) -> AdapterBundle:
 
     Not used by tests — test fixtures build fakes or temp-backed adapters
     directly (see `tests/conftest.py`) so tests never depend on this
-    function's real DuckDB/Chroma wiring.
+    function's real DuckDB/Chroma/OpenAI wiring.
     """
     connection = connect(settings.category_insights_db_path)
     repository = DuckDbRepository(connection)
@@ -49,4 +54,14 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         notes_collection, min_similarity=settings.category_insights_note_min_similarity
     )
 
-    return AdapterBundle(repository=repository, note_retriever=note_retriever)
+    chat_model = ChatModelProvider(settings).get()
+    learned_site_aliases = LearnedSiteAliases(
+        repository
+    )  # DuckDbRepository implements SiteAliasStore
+
+    return AdapterBundle(
+        repository=repository,
+        note_retriever=note_retriever,
+        chat_model=chat_model,
+        learned_site_aliases=learned_site_aliases,
+    )

@@ -2,6 +2,37 @@
 
 One entry per sprint merge, newest first.
 
+## Self-learning site resolution (unreleased)
+
+Fixes a gap found while walking through the code: `sites.resolve_site()`
+silently defaulted to the US site for any unrecognized mention, unlike
+category resolution (asks for clarification) or date-range parsing
+(falls back to the LLM). A user could ask about a site phrased in a way
+not in the hardcoded alias list and silently get US data back.
+
+- `sites.py` gains `match_known_site()` (returns `None` on no match,
+  split out of `resolve_site()`, whose behavior is unchanged) — the
+  primitive the learning-aware path needs to tell "matched" apart from
+  "should ask the LLM."
+- New `domain.ports.SiteAliasStore` port + `DuckDbRepository`
+  implementation (`learned_site_aliases` table) — persists aliases the
+  LLM has classified, surviving restarts and `--reset`.
+- New `agent/site_resolution.py`: `LearnedSiteAliases` (in-memory cache
+  over the store) and `resolve_site_with_learning()` — checks the static
+  registry, then learned aliases, and only then asks the LLM to classify
+  the mention against the closed set of 5 known sites (never open-ended
+  generation). A valid answer is learned before being returned; an
+  uncertain one (`None`, or an id the LLM invented that isn't a real
+  site) falls back to the default **without** being cached, so a bad
+  guess never gets locked in.
+- Brought back `agent/llm.py::ChatModelProvider` and wired `chat_model` +
+  `learned_site_aliases` into `bootstrap.AdapterBundle`.
+- Manually verified against the real DuckDB warehouse file: resolving an
+  unrecognized site name persists it; a fresh `LearnedSiteAliases`
+  (simulating a new process) resolves the same mention with zero LLM
+  calls; `--reset` regenerates mock metrics/categories but preserves
+  learned aliases.
+
 ## Schema rework: real fields, multi-site (unreleased)
 
 Replaced the 9 invented percentage metrics with the fields a real

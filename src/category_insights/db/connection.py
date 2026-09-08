@@ -22,6 +22,13 @@ CREATE TABLE IF NOT EXISTS categories (
 )
 """
 
+_LEARNED_SITE_ALIASES_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS learned_site_aliases (
+    alias VARCHAR PRIMARY KEY,
+    site_id INTEGER NOT NULL
+)
+"""
+
 
 def _metrics_table_sql() -> str:
     """Build the `category_daily_metrics` DDL from the metric registry.
@@ -44,13 +51,20 @@ def _metrics_table_sql() -> str:
 
 
 def bootstrap_schema(connection: duckdb.DuckDBPyConnection) -> None:
-    """Create the `categories` and `category_daily_metrics` tables if they don't exist."""
+    """Create the `categories`, `category_daily_metrics`, and `learned_site_aliases` tables."""
     connection.execute(_CATEGORIES_TABLE_SQL)
     connection.execute(_metrics_table_sql())
+    connection.execute(_LEARNED_SITE_ALIASES_TABLE_SQL)
 
 
 def reset_schema(connection: duckdb.DuckDBPyConnection) -> None:
-    """Drop and recreate both tables — used by `seed_mock_data.py --reset`."""
+    """Drop and recreate all tables — used by `seed_mock_data.py --reset`.
+
+    Deliberately does *not* drop `learned_site_aliases` — a mock-data
+    reset regenerates metrics and categories, but learned site aliases
+    aren't mock data; they're real value accumulated from real questions,
+    and resetting them would defeat the point of learning them at all.
+    """
     connection.execute("DROP TABLE IF EXISTS category_daily_metrics")
     connection.execute("DROP TABLE IF EXISTS categories")
     bootstrap_schema(connection)

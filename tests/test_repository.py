@@ -7,6 +7,7 @@ seeded data is at site 0 (US) — `tests.conftest.SEEDED_SITE_ID`.
 
 from datetime import date
 
+import duckdb
 import pytest
 
 from category_insights.db.repository import DuckDbRepository
@@ -210,3 +211,23 @@ def test_insert_metric_points_upserts_rather_than_duplicates(
     )
     assert len(points) == 1
     assert points[0].value == pytest.approx(999.0)
+
+
+def test_learned_site_aliases_round_trip(temp_duckdb: duckdb.DuckDBPyConnection) -> None:
+    repository = DuckDbRepository(temp_duckdb)
+    assert repository.list_learned_aliases() == {}
+
+    repository.save_learned_alias("deutschland", 77)
+    repository.save_learned_alias("britain", 3)
+
+    assert repository.list_learned_aliases() == {"deutschland": 77, "britain": 3}
+
+
+def test_save_learned_alias_upserts_rather_than_duplicates(
+    temp_duckdb: duckdb.DuckDBPyConnection,
+) -> None:
+    repository = DuckDbRepository(temp_duckdb)
+    repository.save_learned_alias("britain", 3)
+    repository.save_learned_alias("britain", 999)  # corrected mapping for the same alias
+
+    assert repository.list_learned_aliases() == {"britain": 999}
