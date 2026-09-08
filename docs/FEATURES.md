@@ -4,7 +4,7 @@ Tracks what's implemented vs. planned, checkpoint by checkpoint. Updated as
 each sprint lands, not written retroactively.
 
 - [x] Sprint 0 — project bootstrap (git, CI, tooling config, docs skeleton)
-- [ ] Sprint 1 — domain contracts (`domain/models.py`, `domain/ports.py`) + metric registry
+- [x] Sprint 1 — domain contracts (`domain/models.py`, `domain/ports.py`) + metric registry
 - [ ] Sprint 2 — DB layer (DuckDB repository + mock data generator)
 - [ ] Sprint 3 — RAG layer (category-notes vector store + retriever)
 - [ ] Sprint 4 — MCP server (6 tools as Command classes)
