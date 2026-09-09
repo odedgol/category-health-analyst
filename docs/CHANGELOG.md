@@ -2,6 +2,24 @@
 
 One entry per sprint merge, newest first.
 
+## Example category names in the clarifying question (unreleased)
+
+Raised directly: what happens when someone asking a question genuinely
+doesn't know the right words for it? Before this, "I don't recognize
+that category" (or "which category are you asking about?") left them
+guessing, unless they separately noticed the sidebar.
+
+- `agent/graph.py` gained `_example_categories_hint()`: both
+  clarification messages (`category_mention is None`, and "don't
+  recognize") now end with `"For example: <2-3 real category names>."`,
+  pulled from the same `list_categories()` call the node already makes —
+  no extra query. Deliberately *not* attached to the `"medium"`-
+  confidence "did you mean X?" message, which already names one concrete
+  category to confirm.
+- Manually verified for real: `"how to ask questions"` ->
+  `"Which category are you asking about? For example: Women's Running
+  Shoes, Laptop Chargers, Vintage Vinyl Records."`
+
 ## Conversation history, category sidebar, and charts (unreleased)
 
 Found live-testing the Streamlit app: asking "how to ask questions" (no

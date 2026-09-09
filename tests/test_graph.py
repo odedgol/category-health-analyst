@@ -17,12 +17,12 @@ from category_insights.agent.category_resolution import (
     CategoryResolutionHandler,
     build_default_handlers,
 )
-from category_insights.agent.graph import answer_question
+from category_insights.agent.graph import _example_categories_hint, answer_question
 from category_insights.agent.intent_extraction import ExtractedFields
 from category_insights.agent.site_resolution import LearnedSiteAliases
 from category_insights.bootstrap import AdapterBundle
 from category_insights.db.repository import DuckDbRepository
-from category_insights.domain.models import CategoryMatch, Note
+from category_insights.domain.models import Category, CategoryMatch, Note
 from category_insights.domain.ports import CategoryResolverIndex
 from category_insights.rag.notes_store import build_notes_index, get_or_create_notes_collection
 from category_insights.rag.retriever import ChromaNoteRetriever
@@ -228,7 +228,11 @@ def test_clarifies_when_no_category_is_mentioned(
         now=date(2026, 1, 10),
     )
 
-    assert result.text == "Which category are you asking about?"
+    # seeded_repository has exactly "Test Category A" and "Test Category B" —
+    # both fit under _EXAMPLE_CATEGORY_COUNT, so both are named as examples.
+    assert result.text == (
+        "Which category are you asking about? For example: Test Category A, Test Category B."
+    )
 
 
 def test_clarifies_for_an_unrecognized_category(
@@ -306,7 +310,10 @@ def test_low_confidence_match_is_not_offered_as_a_did_you_mean(
     )
 
     assert "don't recognize" in result.text
-    assert "Test Category B" not in result.text
+    # Not offered as a specific suggestion — "Test Category B" may still
+    # appear as a generic catalog example (both seeded categories do), but
+    # never framed as "did you mean the low-confidence guess?".
+    assert "Did you mean" not in result.text
 
 
 def test_wants_explanation_appends_matching_notes(
@@ -496,3 +503,15 @@ def test_clarification_result_carries_no_structured_data(
     assert result.metric_series == {}
     assert result.comparisons == []
     assert result.snapshot is None
+
+
+def test_example_categories_hint_lists_up_to_three_names() -> None:
+    categories = [Category(category_id=i, name=f"Category {i}", aliases=[]) for i in range(1, 6)]
+
+    hint = _example_categories_hint(categories)
+
+    assert hint == " For example: Category 1, Category 2, Category 3."
+
+
+def test_example_categories_hint_is_empty_for_an_empty_catalog() -> None:
+    assert _example_categories_hint([]) == ""

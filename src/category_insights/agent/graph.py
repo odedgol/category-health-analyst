@@ -41,6 +41,7 @@ from category_insights.agent.intent_extraction import ConversationTurn, extract_
 from category_insights.agent.site_resolution import resolve_site_with_learning
 from category_insights.bootstrap import AdapterBundle
 from category_insights.domain.models import (
+    Category,
     CategoryMatch,
     CategorySnapshot,
     MetricPoint,
@@ -105,6 +106,23 @@ def _default_metric_keys(intent: QueryIntent) -> list[str]:
     return intent.metric_keys or [metric.key for metric in METRICS]
 
 
+_EXAMPLE_CATEGORY_COUNT = 3
+
+
+def _example_categories_hint(categories: list[Category]) -> str:
+    """A few real category names, for a clarifying question to point at.
+
+    Exists because "I don't recognize that category" on its own leaves
+    someone who doesn't know the exact catalog names stuck guessing —
+    the sidebar lists everything, but naming a couple of real examples
+    right in the chat message doesn't require noticing it exists.
+    """
+    examples = [category.name for category in categories[:_EXAMPLE_CATEGORY_COUNT]]
+    if not examples:
+        return ""
+    return f" For example: {', '.join(examples)}."
+
+
 def build_graph(
     adapters: AdapterBundle, category_handlers: list[CategoryResolutionHandler], settings: Settings
 ) -> StateGraph:
@@ -138,10 +156,14 @@ def build_graph(
 
     def resolve_category_node(state: AgentState) -> dict:
         intent = state["intent"]
-        if intent.category_mention is None:
-            return {"clarification": "Which category are you asking about?"}
-
         categories = adapters.repository.list_categories()
+
+        if intent.category_mention is None:
+            return {
+                "clarification": "Which category are you asking about?"
+                + _example_categories_hint(categories)
+            }
+
         match = resolve_category(intent.category_mention, categories, category_handlers)
 
         if match is None or match.confidence == "low":
@@ -152,6 +174,7 @@ def build_graph(
                 "clarification": (
                     f"I don't recognize a category called {intent.category_mention!r}. "
                     "Could you rephrase, or use the category's exact name?"
+                    + _example_categories_hint(categories)
                 )
             }
         if match.confidence == "medium":
