@@ -2,6 +2,84 @@
 
 One entry per sprint merge, newest first.
 
+## Sprint 6 — Streamlit UI, final README (unreleased)
+
+- Added `ui/app.py`: a Streamlit chat UI over `agent.graph.answer_question`
+  — no direct DB/Chroma/LLM calls, only the same `AdapterBundle` and
+  `answer_question` entry point Sprint 5 built. `st.cache_resource` holds
+  the adapter bundle across Streamlit reruns (live connections, not data
+  to be re-pickled).
+- `README.md` rewritten into the full setup/usage guide: install, `.env`
+  setup, seeding mock data + the notes/category indexes, running the MCP
+  server standalone, running the Streamlit app, and running the tests.
+- Full `pytest`/`ruff check`/`ruff format --check` pass across the
+  repository (136 tests).
+- Manually verified `uv run streamlit run src/category_insights/ui/app.py`
+  boots cleanly (HTTP 200, no errors in the server log) against the real,
+  freshly-seeded warehouse. No browser automation tool was available in
+  this environment to drive an actual chat interaction, and no real
+  `OPENAI_API_KEY` to get a real answer past `extract_intent`'s LLM call
+  regardless — the same limitation Sprint 5's verification hit.
+
+## Sprint 5 — Agent layer: LangGraph pipeline (unreleased)
+
+- Added `agent/intent_extraction.py`: `extract_intent()` turns a
+  free-text question into a `QueryIntent` via one structured-output LLM
+  call — `category_mention`/`site_mention` come back as raw text
+  (resolving them is later steps' job), `metric_keys` is filtered against
+  the metric registry so an invented key is dropped, and date phrases are
+  handed to `date_ranges.py` to resolve.
+- Added `agent/date_ranges.py`: `parse_known_phrase()` (fast,
+  deterministic — today/yesterday/this-or-last week/month/quarter/"last N
+  days"/"last N weeks", parameterized by an explicit `now`, never
+  `date.today()`) and `resolve_date_range()`, which falls back to an LLM
+  for a phrase the fast path doesn't recognize. A nonsensical LLM answer
+  (`start` after `end`, or either side `null`) resolves to `None` rather
+  than being trusted.
+- Added `agent/category_resolution.py`: a 4-handler Chain of
+  Responsibility (`ExactNameHandler` -> `AliasHandler` ->
+  `SubstringHandler` -> `SemanticSearchHandler`) resolving a
+  `category_mention` to a `CategoryMatch` with a confidence tier
+  (`"high"`/`"medium"`/`"low"`). Backed by `ChromaCategoryResolverIndex`,
+  a second Chroma collection (`category_resolution_index`) kept
+  physically separate from `category_notes` per `vectorstore.py`'s
+  contract. Only the first two handlers are `"high"` confidence by
+  construction — a non-`"high"` match is a legitimate outcome for the
+  caller to turn into a clarifying question, never silently acted on.
+- Added `agent/answer_formatting.py`: pure functions turning a
+  `PeriodComparison`/metric series/`CategorySnapshot`/notes into
+  human-readable text — `PeriodComparison.improved` (not the raw sign of
+  the delta) decides "improvement" vs "decline", so a lower-is-better
+  metric that dropped still reads as good news.
+- Added `agent/graph.py`: the LangGraph pipeline
+  (`extract_intent -> resolve_site -> resolve_category -> [clarify |
+  fetch_data -> [retrieve_notes] -> format_answer]`) and the
+  `answer_question()` convenience entry point. A missing, unrecognized,
+  or non-`"high"`-confidence category mention routes straight to
+  `clarify` before any tool call. `retrieve_notes` runs when
+  `intent.wants_explanation` is set, *or* when a computed comparison
+  moved by more than `settings.category_insights_unexpected_delta_threshold`
+  percentage points — the one setting from Sprint 1 that had gone unused
+  until this sprint wired it in.
+- `bootstrap.AdapterBundle` gained `category_resolver_index`, (re)indexed
+  from the DB's current category list on every `build_adapters()` call —
+  unlike the notes collection (seeded offline), this one is small enough,
+  and needs to stay in sync with the DB closely enough, that reindexing
+  inline on startup is simpler than a separate seed script.
+- Manually verified against the real, freshly-seeded DuckDB warehouse
+  (`uv run python -m scripts.seed_mock_data --reset`): `list_categories`
+  returned all 18 real fixture categories; `ExactNameHandler`/
+  `AliasHandler` resolved `"sneakers"` to `"Women's Running Shoes"` with
+  no LLM involved; `CompareMetricPeriodsCommand` +
+  `format_period_comparison` produced a correct, readable comparison
+  (`aligned_tax_count` for August vs. September). `build_adapters()` was
+  also run end-to-end with a dummy `OPENAI_API_KEY`: it got as far as the
+  real category-index embedding call before failing on the expected
+  401 — same boundary Sprint 3/4 hit, and, like then, this environment
+  has no real key to verify further with. The intent-extraction and
+  semantic-category-resolution LLM paths are covered by `FakeChatModel`
+  tests only, not a real model call.
+
 ## Self-learning site resolution (unreleased)
 
 Fixes a gap found while walking through the code: `sites.resolve_site()`

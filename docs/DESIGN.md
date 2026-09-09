@@ -220,3 +220,64 @@ written after the fact.
   (standing in for a new process reading the same file) resolves the
   same mention with zero LLM calls; `--reset` regenerates mock data but
   leaves the learned table untouched.
+
+## Sprint 5 — Agent layer: LangGraph pipeline
+
+- **Category resolution's 4-handler chain is a real Chain of
+  Responsibility**, unlike sites — the payoff `sites.match_known_site`'s
+  docstring promised. Only the first two handlers (`ExactNameHandler`,
+  `AliasHandler`) are `confidence="high"`; `SubstringHandler` is
+  `"medium"`; the semantic handler's tier is computed from the raw
+  similarity score against the two configured thresholds. This module
+  never decides what to *do* with a non-`"high"` match — that's
+  `agent.graph`'s call — so the resolution logic stays testable
+  independent of the clarification-question wording built on top of it.
+- **The category-resolution vector index is a second, separate Chroma
+  collection** (`category_resolution_index`), never `category_notes` —
+  `vectorstore.py`'s contract from Sprint 3, finally exercised. It's
+  (re)indexed inline on every `build_adapters()` call rather than via an
+  offline seed script like the notes corpus: the category list is small
+  and must always match the DB exactly, so an `upsert`-based reindex on
+  every startup is simpler than keeping a second script in sync.
+- **`date_ranges.py` and `site_resolution.py` share a shape, not a base
+  class**: both are "fast deterministic path, then an LLM asked only for
+  what falls through." Neither is a shared abstraction — matching the
+  project's running rule (see the site-resolution entry above) that a
+  shared *shape* doesn't obligate a shared *class*.
+- **`category_insights_unexpected_delta_threshold` (defined in Sprint 1,
+  unused until now)**: `agent.graph`'s `fetch_data_node` checks every
+  computed `PeriodComparison`'s `pct_delta` against it, in percentage
+  points, and routes to `retrieve_notes` even when `wants_explanation`
+  is `False` if any comparison crossed it — a big enough swing is worth
+  explaining whether or not the user thought to ask "why."
+- **The graph has exactly one branch point before any tool call**:
+  `resolve_category`'s result. A missing mention, an unrecognized one, or
+  a non-`"high"`-confidence match all route to `clarify` — the graph
+  never guesses at a category, matching the "asks for clarification"
+  behavior planned for category resolution back in the site-resolution
+  entry above (in contrast to sites, which default, and dates, which ask
+  the LLM).
+- **Manually verified against a freshly-seeded, real DuckDB warehouse**
+  (`scripts.seed_mock_data --reset`): `list_categories` returned all 18
+  fixture categories; `AliasHandler` resolved `"sneakers"` to `"Women's
+  Running Shoes"` with zero LLM calls; a real `CompareMetricPeriodsCommand`
+  call, run through `format_period_comparison`, produced a correct,
+  readable sentence. `build_adapters()` with a dummy API key reached the
+  real category-index embedding call before failing on the expected 401
+  — same wall Sprint 3/4 hit; this environment still has no real key to
+  verify the LLM-dependent paths (`extract_intent`, semantic category
+  resolution) beyond the `FakeChatModel` test suite.
+
+## Sprint 6 — Streamlit UI, final README
+
+- **`ui/app.py` depends on nothing but `agent.graph.answer_question`** —
+  no DB/Chroma/LLM import in the file at all. The hexagonal boundary
+  promised since Sprint 0 holds all the way to the presentation layer.
+- **`st.cache_resource`, not `st.cache_data`, holds the `AdapterBundle`**
+  across Streamlit reruns — it wraps live connections (a DuckDB handle, a
+  Chroma client, an LLM client) that must survive a rerun as the same
+  objects, not be serialized into a data cache and reconstructed.
+- **Manually verified the app boots**: `uv run streamlit run
+  src/category_insights/ui/app.py` served HTTP 200 with a clean server
+  log against the real seeded warehouse. No browser automation tool was
+  available in this environment to drive an actual chat turn through it.
