@@ -365,8 +365,35 @@ written after the fact.
   same question shape for Laptop Chargers (no real event in that
   category) correctly fell through to a snapshot rather than a false
   positive.
-- **Known gap, left open** (see `docs/ISSUES.md`): confirming the
-  detected date with a follow-up doesn't yet turn into an automatic
-  before/after comparison with notes — it resolves to a single-day
-  value. `wants_explanation` isn't currently carried from the original
-  turn into how the confirmed date gets used.
+
+## Post-sprint: two more "stuck loop" shapes
+
+- **A single change-point candidate is acted on, never asked about.**
+  The first version of `detect_change_node` always asked "which date?,"
+  even with exactly one candidate — and a reply that didn't add a new
+  date (re-stating the category, say) produced the identical question
+  again, since nothing about the underlying data had changed between
+  calls. Fixed by writing a before/after window straight into `intent`
+  via `QueryIntent.model_copy(update={...})` and letting the graph
+  proceed to `fetch_data` normally — `detect_change_node` only routes to
+  `clarify` now when there's a *real* conflict (distinct metrics
+  pointing at different dates), which is the one shape where asking
+  actually resolves genuine ambiguity rather than restating an answer
+  the data already gave.
+- **A model limitation prompting alone couldn't fix.** Live testing
+  found `gpt-4o-mini` keeping a wrong `category_mention` from earlier in
+  a conversation instead of the value the latest message was actively
+  correcting it with — reproduced consistently, and it survived
+  strengthening `intent_extraction`'s prompt with an explicit "the
+  latest message overrides anything said earlier" instruction. Rather
+  than keep tuning the prompt against a model too small for reliable
+  multi-turn correction reasoning, the fix moved to deterministic code:
+  `_last_turn_asked_about_category()` checks whether the immediately
+  preceding message was one of `resolve_category_node`'s own three
+  clarification templates (shared as constants with the code that
+  generates them, so they can't drift apart) and, only then, retries
+  resolution against the raw latest message directly — bypassing
+  extraction's judgment for just that one field, for just that one
+  situation. A narrow, code-level fallback beats a wider prompt change
+  when the failure is really "trust the model less here," not "phrase
+  the instruction better."

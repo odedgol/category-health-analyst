@@ -47,6 +47,33 @@ entry is marked resolved (with the sprint that fixed it) or left open.
   instead. See `docs/CHANGELOG.md` / `docs/DESIGN.md` for the threshold
   calibration.
 
+- **`detect_change` always asked "which date?," even with only one
+  honest answer.** A single real change point still triggered a
+  clarifying question, and a reply that didn't add a new date (e.g. just
+  re-stating the category) bounced back into the identical question —
+  the same "stuck" pattern as the history bug above, in a new spot.
+  **Fixed**: a single, unambiguous candidate is now acted on directly —
+  `detect_change_node` writes a before/after window straight into
+  `intent` and the graph proceeds to `fetch_data`, explaining the change
+  instead of asking about it. Only a genuine conflict between metrics
+  still routes to `clarify`.
+
+- **A wrong `category_mention` from earlier in the conversation could
+  survive a correction.** Reported live: `"what cause the change in the
+  Aligned taxonomy"` (not a real category) → correctly asked which
+  category → `"Women's Running Shoes"` → the *same* "I don't recognize
+  'Aligned taxonomy'" message came back, ignoring the correction.
+  Root cause, verified live and reproduced consistently: `gpt-4o-mini`
+  can keep an earlier, wrong extracted value instead of the one the
+  latest message is correcting it with — this held even after
+  strengthening the extraction prompt with an explicit
+  "latest message overrides earlier ones" instruction; prompting alone
+  didn't fix it. **Fixed** deterministically instead:
+  `resolve_category_node` gained `_last_turn_asked_about_category()` —
+  when resolution fails right after our own category clarification, it
+  retries against the raw latest message directly, bypassing
+  extraction's judgment for that one field.
+
 ## Open
 
 - **Category resolution can only be as good as the embedding model lets
@@ -58,11 +85,12 @@ entry is marked resolved (with the sprint that fixed it) or left open.
   category-list sidebar (Sprint 6+) mitigates this by letting a user see
   the real catalog instead of guessing, but doesn't eliminate it.
 
-- **Confirming a detected change point doesn't yet trigger an automatic
-  before/after comparison.** Replying to "I see a notable change around
-  DATE — which one?" with that date (e.g. `"2026-06-27"`) currently
-  resolves to a single-day snapshot value, not a period comparison with
-  notes attached — `wants_explanation` from the original turn isn't
-  carried into the follow-up's fetch behavior. The right fix is likely
-  turning a confirmed change-point date into an automatic "just before
-  vs. at/after that date" comparison; not built yet.
+- **The stale-`category_mention` fallback is scoped to "right after our
+  own category clarification."** It won't catch the same
+  keep-the-earlier-value failure mode in other fields (a stale
+  `metric_keys`/`date_phrase`/`site_mention` carried forward
+  incorrectly) — only `category_mention`, and only immediately following
+  one of the three specific clarification messages
+  `resolve_category_node` itself generates. A broader fix would need a
+  more general "the latest message corrects field X" mechanism, not
+  built yet.

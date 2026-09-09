@@ -19,7 +19,12 @@ grounded in real data rather than a generic "I'm not sure":
   Rather than silently answer with a snapshot that doesn't actually
   address "what changed," it looks at the metric's real history for a
   jump that stands out from its own noise (`change_detection.
-  find_change_points`) and asks which one the user meant.
+  find_change_points`). A single, unambiguous change point is acted on
+  directly (a before/after window is written into `intent`, no
+  clarification needed) — only a genuine conflict between metrics
+  routes to `clarify`. Always asking, even with one obvious answer,
+  is exactly the "which date?" loop a bare confirming reply can't
+  break out of.
 
 `retrieve_notes` runs when `intent.wants_explanation` is set, *or* when
 a computed comparison moved by more than
@@ -56,6 +61,7 @@ from category_insights.domain.models import (
     Category,
     CategoryMatch,
     CategorySnapshot,
+    DateRange,
     MetricPoint,
     NoteChunk,
     PeriodComparison,
@@ -78,6 +84,11 @@ from category_insights.settings import Settings
 _CHANGE_DETECTION_LOOKBACK_DAYS = 150
 """How far back `detect_change_node` looks for a notable jump — generous enough to
 cover the whole mock-data window (seeded up to 120 days by default)."""
+
+_CHANGE_WINDOW_DAYS = 7
+"""Width of the before/after window `detect_change_node` builds around a single,
+unambiguous change point, so it can explain the change directly instead of asking
+a question the data has only one honest answer to."""
 
 
 @dataclass(frozen=True)
@@ -139,6 +150,37 @@ def _example_categories_hint(categories: list[Category]) -> str:
     return f" For example: {', '.join(examples)}."
 
 
+_NO_CATEGORY_PREFIX = "Which category are you asking about?"
+_UNRECOGNIZED_CATEGORY_PREFIX = "I don't recognize a category called "
+_AMBIGUOUS_CATEGORY_PREFIX = "Did you mean "
+"""The exact prefixes `resolve_category_node` generates for its three clarifying
+messages — shared with `_last_turn_asked_about_category` below so detecting "we
+just asked about the category" can never silently drift out of sync with the
+wording that actually asks it."""
+
+
+def _last_turn_asked_about_category(history: list[ConversationTurn] | None) -> bool:
+    """Whether the immediately preceding turn was our own category clarification.
+
+    Checked only as a fallback (see `resolve_category_node`) when
+    extraction's `category_mention` fails to resolve: a real,
+    reproducible `gpt-4o-mini` limitation is that it can keep an earlier,
+    wrong `category_mention` from the conversation instead of the one the
+    user is actively correcting it with, even with an explicit prompt
+    instruction to prefer the latest message. If we ourselves just asked
+    which category, the user is very likely typing the name verbatim —
+    worth trying directly rather than trusting a stale extraction.
+    """
+    if not history:
+        return False
+    role, content = history[-1]
+    if role != "assistant":
+        return False
+    return content.startswith(
+        (_NO_CATEGORY_PREFIX, _UNRECOGNIZED_CATEGORY_PREFIX, _AMBIGUOUS_CATEGORY_PREFIX)
+    )
+
+
 def build_graph(
     adapters: AdapterBundle, category_handlers: list[CategoryResolutionHandler], settings: Settings
 ) -> StateGraph:
@@ -175,12 +217,22 @@ def build_graph(
         categories = adapters.repository.list_categories()
 
         if intent.category_mention is None:
-            return {
-                "clarification": "Which category are you asking about?"
-                + _example_categories_hint(categories)
-            }
+            return {"clarification": _NO_CATEGORY_PREFIX + _example_categories_hint(categories)}
 
         match = resolve_category(intent.category_mention, categories, category_handlers)
+
+        if (match is None or match.confidence == "low") and _last_turn_asked_about_category(
+            state.get("history")
+        ):
+            # Extraction can keep a stale/wrong category_mention from earlier
+            # in the conversation instead of the one the latest message is
+            # actively correcting it with — see `_last_turn_asked_about_category`.
+            # We just asked about the category, so try the raw latest message
+            # directly: a verbatim reply resolves correctly even when
+            # extraction's judgment call didn't.
+            raw_match = resolve_category(state["raw_question"], categories, category_handlers)
+            if raw_match is not None and raw_match.confidence != "low":
+                match = raw_match
 
         if match is None or match.confidence == "low":
             # "low" is the semantic handler's honest floor, not a guess worth
@@ -188,7 +240,7 @@ def build_graph(
             # would read as more confident than the match actually is.
             return {
                 "clarification": (
-                    f"I don't recognize a category called {intent.category_mention!r}. "
+                    f"{_UNRECOGNIZED_CATEGORY_PREFIX}{intent.category_mention!r}. "
                     "Could you rephrase, or use the category's exact name?"
                     + _example_categories_hint(categories)
                 )
@@ -197,7 +249,8 @@ def build_graph(
             return {
                 "category_match": match,
                 "clarification": (
-                    f"Did you mean {match.name!r}? I'm not fully sure — please confirm or rephrase."
+                    f"{_AMBIGUOUS_CATEGORY_PREFIX}{match.name!r}? I'm not fully sure — "
+                    "please confirm or rephrase."
                 ),
             }
         return {"category_match": match}
@@ -217,11 +270,19 @@ def build_graph(
         Rather than guess a period or silently show current numbers, this
         looks at each metric's real history for a jump that stands out
         far past its own day-to-day noise (`change_detection.
-        find_change_points`) and asks the user to confirm *that* date —
-        grounded in the real data, not a guess. No candidates anywhere
-        (nothing stands out, or the question wasn't a "why" question, or
-        a period was already given) falls through to `fetch_data`
-        unchanged.
+        find_change_points`).
+
+        A single, unambiguous change point is acted on directly — a
+        before/after window built around that date is written into
+        `intent` and the graph proceeds straight to `fetch_data`, so the
+        answer explains the change instead of asking a question the data
+        has only one honest answer to (this is what a bare reply
+        confirming the category, with no new date, used to bounce back
+        into the same "which date?" question forever). Only a genuine
+        conflict — different metrics pointing at different dates — is
+        worth actually asking about. No candidates anywhere (nothing
+        stands out, or the question wasn't a "why" question, or a period
+        was already given) falls through to `fetch_data` unchanged.
         """
         intent = state["intent"]
         if not intent.wants_explanation or intent.date_range or intent.comparison_range:
@@ -248,6 +309,29 @@ def build_graph(
 
         if not candidates_by_metric:
             return {}
+
+        distinct_dates = sorted({day for days in candidates_by_metric.values() for day in days})
+
+        if len(distinct_dates) == 1:
+            change_day = distinct_dates[0]
+            before = DateRange(
+                start=change_day - timedelta(days=_CHANGE_WINDOW_DAYS),
+                end=change_day - timedelta(days=1),
+                label=f"the week before {change_day.isoformat()}",
+            )
+            after = DateRange(
+                start=change_day,
+                end=change_day + timedelta(days=_CHANGE_WINDOW_DAYS - 1),
+                label=f"the week of {change_day.isoformat()}",
+            )
+            updated_intent = intent.model_copy(
+                update={
+                    "metric_keys": sorted(candidates_by_metric),
+                    "comparison_range": before,
+                    "date_range": after,
+                }
+            )
+            return {"intent": updated_intent}
 
         hints = [
             f"{get_metric(metric_key).display_name} around "

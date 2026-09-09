@@ -260,6 +260,75 @@ def test_clarifies_for_an_unrecognized_category(
     assert "don't recognize" in result.text
 
 
+def test_stale_category_mention_falls_back_to_the_raw_reply_after_our_own_clarification(
+    seeded_repository: DuckDbRepository,
+    fake_chat_model: FakeChatModel,
+    chroma_client: chromadb.ClientAPI,
+    fake_embedding_function: EmbeddingFunction,
+) -> None:
+    # Simulates a real, reproducible gpt-4o-mini limitation, verified live:
+    # extraction can keep an earlier, wrong category_mention instead of the
+    # one the latest message is actively correcting it with — even with an
+    # explicit prompt instruction to prefer the latest message. FakeChatModel
+    # returning the same (wrong) category_mention regardless of the actual
+    # question stands in for that failure mode.
+    fake_chat_model.set_structured_response(
+        ExtractedFields,
+        ExtractedFields(category_mention="an entirely unrelated thing", wants_explanation=True),
+    )
+    adapters = _build_adapters(
+        seeded_repository, fake_chat_model, chroma_client, fake_embedding_function
+    )
+    history = [
+        ("user", "what caused the change in an entirely unrelated thing"),
+        (
+            "assistant",
+            "I don't recognize a category called 'an entirely unrelated thing'. "
+            "Could you rephrase, or use the category's exact name? "
+            "For example: Test Category A, Test Category B.",
+        ),
+    ]
+
+    result = answer_question(
+        "Test Category A",
+        adapters,
+        _handlers(_EmptyResolverIndex()),
+        now=date(2026, 1, 10),
+        history=history,
+    )
+
+    assert "don't recognize" not in result.text
+
+
+def test_stale_category_mention_is_not_reinterpreted_without_our_own_prior_clarification(
+    seeded_repository: DuckDbRepository,
+    fake_chat_model: FakeChatModel,
+    chroma_client: chromadb.ClientAPI,
+    fake_embedding_function: EmbeddingFunction,
+) -> None:
+    # Same unresolvable category_mention as above, but the prior turn wasn't
+    # our own category clarification — the fallback must not kick in just
+    # because history exists; it only applies right after we ourselves asked.
+    fake_chat_model.set_structured_response(
+        ExtractedFields,
+        ExtractedFields(category_mention="an entirely unrelated thing", wants_explanation=True),
+    )
+    adapters = _build_adapters(
+        seeded_repository, fake_chat_model, chroma_client, fake_embedding_function
+    )
+    history = [("assistant", "Here's the snapshot for Test Category A: ...")]
+
+    result = answer_question(
+        "Test Category A",
+        adapters,
+        _handlers(_EmptyResolverIndex()),
+        now=date(2026, 1, 10),
+        history=history,
+    )
+
+    assert "don't recognize" in result.text
+
+
 def test_medium_confidence_match_is_offered_as_a_did_you_mean(
     seeded_repository: DuckDbRepository,
     fake_chat_model: FakeChatModel,
@@ -518,13 +587,18 @@ def test_example_categories_hint_is_empty_for_an_empty_catalog() -> None:
     assert _example_categories_hint([]) == ""
 
 
-def test_why_question_with_no_period_asks_about_the_real_change_point(
+def test_why_question_with_no_period_and_one_change_point_explains_it_directly(
     temp_duckdb: duckdb.DuckDBPyConnection,
     fake_chat_model: FakeChatModel,
     chroma_client: chromadb.ClientAPI,
     fake_embedding_function: EmbeddingFunction,
 ) -> None:
-    """End-to-end: a "why" question with no period triggers detect_change_node.
+    """End-to-end: a "why" question with no period, and one unambiguous change point.
+
+    A single candidate is acted on directly — a before/after comparison
+    around it — rather than asked about: asking when there's only one
+    honest answer is exactly the "which date?" loop a bare confirming
+    reply (no new date) can't break out of.
 
     Builds its own category/metric data (rather than using
     `seeded_repository`, whose series are deliberately flat/linear — no
@@ -588,10 +662,82 @@ def test_why_question_with_no_period_asks_about_the_real_change_point(
         now=start + timedelta(days=len(values) - 1),
     )
 
-    assert "notable change" in result.text
+    assert "notable change" not in result.text  # acted on directly, no clarification
     assert spike_day.isoformat() in result.text
+    assert "decline" in result.text  # image_count dropped sharply on the spike day
     assert result.snapshot is None
     assert result.metric_series == {}
+    assert len(result.comparisons) == 1
+    assert result.comparisons[0].metric_key == "image_count"
+
+
+def test_why_question_with_two_distinct_change_points_asks_which_one(
+    temp_duckdb: duckdb.DuckDBPyConnection,
+    fake_chat_model: FakeChatModel,
+    chroma_client: chromadb.ClientAPI,
+    fake_embedding_function: EmbeddingFunction,
+) -> None:
+    """Two genuinely separate, unambiguous change dates is the one case worth asking about."""
+    repository = DuckDbRepository(temp_duckdb)
+    repository.insert_categories([Category(category_id=1, name="Spiky Category", aliases=[])])
+
+    start = date(2025, 1, 1)
+    baseline_noise = [
+        1.3,
+        -2.1,
+        0.7,
+        2.4,
+        -1.6,
+        1.9,
+        -0.8,
+        1.2,
+        -2.3,
+        0.6,
+        1.7,
+        -1.1,
+        0.9,
+        -1.8,
+        1.4,
+    ]
+    deltas = [*baseline_noise, -500.0, 1.1, -0.9, 0.3, -1500.0, 0.8, -1.2, 0.4]
+    values = [100.0]
+    for delta in deltas:
+        values.append(values[-1] + delta)
+    step_a_day = start + timedelta(days=len(baseline_noise) + 1)
+    step_b_day = start + timedelta(days=len(baseline_noise) + 4 + 1)
+    repository.insert_metric_points(
+        [
+            MetricPoint(
+                category_id=1,
+                site_id=0,
+                metric_key="image_count",
+                date=start + timedelta(days=i),
+                value=value,
+            )
+            for i, value in enumerate(values)
+        ]
+    )
+
+    fake_chat_model.set_structured_response(
+        ExtractedFields,
+        ExtractedFields(
+            category_mention="Spiky Category",
+            metric_keys=["image_count"],
+            wants_explanation=True,
+        ),
+    )
+    adapters = _build_adapters(repository, fake_chat_model, chroma_client, fake_embedding_function)
+
+    result = answer_question(
+        "Why did image count change for Spiky Category?",
+        adapters,
+        _handlers(_UnreachableResolverIndex()),
+        now=start + timedelta(days=len(values) - 1),
+    )
+
+    assert "notable change" in result.text
+    assert step_a_day.isoformat() in result.text
+    assert step_b_day.isoformat() in result.text
     assert result.comparisons == []
 
 

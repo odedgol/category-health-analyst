@@ -56,10 +56,16 @@ def _build_extraction_prompt(question: str, now: date, history: list[Conversatio
     if history:
         transcript = "\n".join(f"{role}: {content}" for role, content in history)
         history_section = (
-            "Conversation so far (oldest first) — if the latest message reads "
-            "like a short answer to the assistant's last message (e.g. just a "
-            "category name after being asked which category), extract it in "
-            "that context rather than treating it as a standalone question:\n"
+            "Conversation so far (oldest first). Read the latest message as a "
+            "continuation of it, not a standalone question — most importantly, "
+            "if the assistant's last message asked a clarifying question or said "
+            "it didn't recognize/couldn't determine something (a category, a "
+            "metric, a date), and the latest message supplies that missing or "
+            "corrected value, USE THE LATEST MESSAGE'S VALUE. It overrides "
+            "anything said or guessed earlier in the conversation, even the "
+            "user's own first message — the earlier guess was wrong or "
+            "incomplete, that's why the assistant asked again. Never keep an "
+            "earlier value the latest message is actively correcting.\n"
             f"{transcript}\n\n"
         )
     return (

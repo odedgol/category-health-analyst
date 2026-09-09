@@ -2,6 +2,53 @@
 
 One entry per sprint merge, newest first.
 
+## Two more "stuck loop" cases: single-candidate change points, stale corrections (unreleased)
+
+Reported live, in the same session as the conversation-history fix: the
+"stuck" pattern showed up in two more spots even after that fix landed.
+
+**1. `detect_change` always asked, even with only one honest answer.**
+Once it found a single real change point, it still asked "which date?" —
+and a reply that didn't add a new date (e.g. just re-stating the
+category) produced the identical clarification again, since nothing
+about the underlying data had changed. Fixed: a single, unambiguous
+candidate is now acted on directly — `agent/graph.py`'s
+`detect_change_node` writes a 7-day before/after window straight into
+`intent` (via `QueryIntent.model_copy`) and the graph proceeds straight
+to `fetch_data`, explaining the change instead of asking about it. Only
+a genuine conflict (distinct metrics pointing at different dates) still
+routes to `clarify`.
+
+**2. A wrong `category_mention` from earlier in the conversation could
+survive a correction.** Root cause, verified live and reproduced
+consistently: `gpt-4o-mini` can keep an earlier, wrong extracted value
+instead of the one the latest message is actively correcting it with —
+this held even after strengthening `intent_extraction`'s prompt with an
+explicit "the latest message overrides anything said earlier" instruction.
+Prompting alone didn't fix it reliably, so the fix is deterministic
+instead: `agent/graph.py`'s `resolve_category_node` gained
+`_last_turn_asked_about_category()` — when resolution fails *and* our own
+immediately preceding message was itself a category clarification (`Which
+category are you asking about?` / `I don't recognize a category called`
+/ `Did you mean`), it retries resolution against the raw latest message
+directly, bypassing extraction's judgment for just that one field. The
+three clarification prefixes are shared constants between the code that
+writes them and the code that detects them, so they can't drift apart.
+
+Manually verified for real, the exact reported scenario end to end:
+`"what cause the change in the Aligned taxonomy"` → correctly asks which
+category, with examples → `"Women's Running Shoes"` → now correctly
+resolves the category (previously looped on the same "I don't
+recognize" message), auto-detects the one real change point, and
+answers with the actual comparison and the real analyst notes explaining
+the taxonomy migration — three messages that used to produce the same
+error message four times now produce the intended answer on the second.
+
+161 tests passing (2 new for the change-point auto-resolve path, 2 new
+for the stale-correction fallback — one proving it fires only right
+after our own clarification, one proving it doesn't fire otherwise),
+ruff clean.
+
 ## Change-point detection for "why did X change" with no period (unreleased)
 
 Raised directly: when someone asks "why did it change" without saying
