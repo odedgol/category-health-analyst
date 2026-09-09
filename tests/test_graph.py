@@ -6,9 +6,10 @@ Uses `seeded_repository` (category 1 "Test Category A", alias "alias-a",
 so date-range math has known, checkable answers.
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 import chromadb
+import duckdb
 import pytest
 from chromadb.api.types import EmbeddingFunction
 
@@ -22,7 +23,7 @@ from category_insights.agent.intent_extraction import ExtractedFields
 from category_insights.agent.site_resolution import LearnedSiteAliases
 from category_insights.bootstrap import AdapterBundle
 from category_insights.db.repository import DuckDbRepository
-from category_insights.domain.models import Category, CategoryMatch, Note
+from category_insights.domain.models import Category, CategoryMatch, MetricPoint, Note
 from category_insights.domain.ports import CategoryResolverIndex
 from category_insights.rag.notes_store import build_notes_index, get_or_create_notes_collection
 from category_insights.rag.retriever import ChromaNoteRetriever
@@ -515,3 +516,108 @@ def test_example_categories_hint_lists_up_to_three_names() -> None:
 
 def test_example_categories_hint_is_empty_for_an_empty_catalog() -> None:
     assert _example_categories_hint([]) == ""
+
+
+def test_why_question_with_no_period_asks_about_the_real_change_point(
+    temp_duckdb: duckdb.DuckDBPyConnection,
+    fake_chat_model: FakeChatModel,
+    chroma_client: chromadb.ClientAPI,
+    fake_embedding_function: EmbeddingFunction,
+) -> None:
+    """End-to-end: a "why" question with no period triggers detect_change_node.
+
+    Builds its own category/metric data (rather than using
+    `seeded_repository`, whose series are deliberately flat/linear — no
+    real change point to find) with one clear injected spike.
+    """
+    repository = DuckDbRepository(temp_duckdb)
+    repository.insert_categories([Category(category_id=1, name="Spiky Category", aliases=[])])
+
+    # Varied, non-tied noise (real day-over-day noise essentially never ties;
+    # see test_change_detection.py's module docstring for why that matters
+    # for the statistics), then one deliberate large step.
+    start = date(2025, 1, 1)
+    baseline_noise = [
+        1.3,
+        -2.1,
+        0.7,
+        2.4,
+        -1.6,
+        1.9,
+        -0.8,
+        1.2,
+        -2.3,
+        0.6,
+        1.7,
+        -1.1,
+        0.9,
+        -1.8,
+        1.4,
+    ]
+    values = [100.0]
+    for delta in [*baseline_noise, -500.0, 1.1, -0.9, 0.3]:
+        values.append(values[-1] + delta)
+    spike_day = start + timedelta(days=len(baseline_noise) + 1)
+    repository.insert_metric_points(
+        [
+            MetricPoint(
+                category_id=1,
+                site_id=0,
+                metric_key="image_count",
+                date=start + timedelta(days=i),
+                value=value,
+            )
+            for i, value in enumerate(values)
+        ]
+    )
+
+    fake_chat_model.set_structured_response(
+        ExtractedFields,
+        ExtractedFields(
+            category_mention="Spiky Category",
+            metric_keys=["image_count"],
+            wants_explanation=True,
+        ),
+    )
+    adapters = _build_adapters(repository, fake_chat_model, chroma_client, fake_embedding_function)
+
+    result = answer_question(
+        "Why did image count change for Spiky Category?",
+        adapters,
+        _handlers(_UnreachableResolverIndex()),
+        now=start + timedelta(days=len(values) - 1),
+    )
+
+    assert "notable change" in result.text
+    assert spike_day.isoformat() in result.text
+    assert result.snapshot is None
+    assert result.metric_series == {}
+    assert result.comparisons == []
+
+
+def test_why_question_with_no_real_change_point_falls_through_to_snapshot(
+    seeded_repository: DuckDbRepository,
+    fake_chat_model: FakeChatModel,
+    chroma_client: chromadb.ClientAPI,
+    fake_embedding_function: EmbeddingFunction,
+) -> None:
+    # seeded_repository's series are deliberately flat/linear (constant
+    # day-over-day deltas) — nothing for detect_change_node to flag, so this
+    # must fall through to a normal snapshot answer, not a dead end.
+    fake_chat_model.set_structured_response(
+        ExtractedFields,
+        ExtractedFields(category_mention="Test Category A", wants_explanation=True),
+    )
+    adapters = _build_adapters(
+        seeded_repository, fake_chat_model, chroma_client, fake_embedding_function
+    )
+
+    result = answer_question(
+        "Why is Test Category A the way it is?",
+        adapters,
+        _handlers(_UnreachableResolverIndex()),
+        now=date(2026, 1, 10),
+    )
+
+    assert "notable change" not in result.text
+    assert result.snapshot is not None

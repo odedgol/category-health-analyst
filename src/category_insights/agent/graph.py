@@ -1,21 +1,32 @@
 """The LangGraph pipeline: ties every agent step into one graph.
 
-    extract_intent -> resolve_site -> resolve_category -+-> clarify -> END
-                                                          |
-                                                          +-> fetch_data -+-> format_answer -> END
-                                                                          |
-                                                                          +-> retrieve_notes -+
+    1. extract_intent
+    2. resolve_site
+    3. resolve_category  -> clarify -> END, or continue
+    4. detect_change      -> clarify -> END, or continue
+    5. fetch_data
+    6. retrieve_notes (conditional)
+    7. format_answer -> END
 
-`resolve_category` is the one branch point before any tool call: a
-missing mention, an unrecognized one, or a match below `"high"`
-confidence all route to `clarify` instead of guessing — see
-`agent.category_resolution`'s docstring for why a non-`"high"` match is a
-legitimate outcome, not a bug. `retrieve_notes` runs when
-`intent.wants_explanation` is set, *or* when a computed comparison moved
-by more than `settings.category_insights_unexpected_delta_threshold`
-percentage points — a swing that large is worth explaining even if
-nobody explicitly asked "why" — so a plain, unremarkable numbers question
-never pays for a retrieval call it didn't need.
+Two branch points (3 and 4) route to `clarify` instead of guessing, each
+grounded in real data rather than a generic "I'm not sure":
+
+- `resolve_category` — a missing mention, an unrecognized one, or a
+  match below `"high"` confidence. See `agent.category_resolution`'s
+  docstring for why a non-`"high"` match is a legitimate outcome, not a
+  bug.
+- `detect_change` — a "why did X change" question with no period given.
+  Rather than silently answer with a snapshot that doesn't actually
+  address "what changed," it looks at the metric's real history for a
+  jump that stands out from its own noise (`change_detection.
+  find_change_points`) and asks which one the user meant.
+
+`retrieve_notes` runs when `intent.wants_explanation` is set, *or* when
+a computed comparison moved by more than
+`settings.category_insights_unexpected_delta_threshold` percentage
+points — a swing that large is worth explaining even if nobody
+explicitly asked "why" — so a plain, unremarkable numbers question never
+pays for a retrieval call it didn't need.
 
 Every node takes and returns a plain dict (LangGraph merges returned keys
 into `AgentState`) so each step stays independently testable — the tests
@@ -24,7 +35,7 @@ compile and run the whole graph.
 """
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from typing import Literal, TypedDict
 
 from langgraph.graph import END, StateGraph
@@ -37,6 +48,7 @@ from category_insights.agent.answer_formatting import (
     format_snapshot,
 )
 from category_insights.agent.category_resolution import CategoryResolutionHandler, resolve_category
+from category_insights.agent.change_detection import find_change_points
 from category_insights.agent.intent_extraction import ConversationTurn, extract_intent
 from category_insights.agent.site_resolution import resolve_site_with_learning
 from category_insights.bootstrap import AdapterBundle
@@ -60,8 +72,12 @@ from category_insights.mcp_server.tools import (
     SearchCategoryNotesCommand,
     SearchCategoryNotesInput,
 )
-from category_insights.metrics import METRICS
+from category_insights.metrics import METRICS, get_metric
 from category_insights.settings import Settings
+
+_CHANGE_DETECTION_LOOKBACK_DAYS = 150
+"""How far back `detect_change_node` looks for a notable jump — generous enough to
+cover the whole mock-data window (seeded up to 120 days by default)."""
 
 
 @dataclass(frozen=True)
@@ -186,11 +202,67 @@ def build_graph(
             }
         return {"category_match": match}
 
-    def route_after_category(state: AgentState) -> Literal["clarify", "fetch_data"]:
-        return "clarify" if state.get("clarification") else "fetch_data"
+    def route_after_category(state: AgentState) -> Literal["clarify", "detect_change"]:
+        return "clarify" if state.get("clarification") else "detect_change"
 
     def clarify_node(state: AgentState) -> dict:
         return {"answer": state["clarification"]}
+
+    def detect_change_node(state: AgentState) -> dict:
+        """For a "why did X change" with no period given, find *which* change to explain.
+
+        Without this, `fetch_data_node` would fall to the snapshot branch
+        (no `date_range`/`comparison_range` to act on) — technically an
+        answer, but not one that says anything about a *change* at all.
+        Rather than guess a period or silently show current numbers, this
+        looks at each metric's real history for a jump that stands out
+        far past its own day-to-day noise (`change_detection.
+        find_change_points`) and asks the user to confirm *that* date —
+        grounded in the real data, not a guess. No candidates anywhere
+        (nothing stands out, or the question wasn't a "why" question, or
+        a period was already given) falls through to `fetch_data`
+        unchanged.
+        """
+        intent = state["intent"]
+        if not intent.wants_explanation or intent.date_range or intent.comparison_range:
+            return {}
+
+        category_id = state["category_match"].category_id
+        site_id = state["site_id"]
+        now = state["now"]
+
+        candidates_by_metric: dict[str, list[date]] = {}
+        for metric_key in _default_metric_keys(intent):
+            output = get_metric_history_command.execute(
+                GetMetricHistoryInput(
+                    category_id=category_id,
+                    site_id=site_id,
+                    metric_key=metric_key,
+                    start_date=now - timedelta(days=_CHANGE_DETECTION_LOOKBACK_DAYS),
+                    end_date=now,
+                )
+            )
+            candidates = find_change_points(output.points)
+            if candidates:
+                candidates_by_metric[metric_key] = candidates
+
+        if not candidates_by_metric:
+            return {}
+
+        hints = [
+            f"{get_metric(metric_key).display_name} around "
+            f"{', '.join(day.isoformat() for day in days)}"
+            for metric_key, days in candidates_by_metric.items()
+        ]
+        return {
+            "clarification": (
+                "I see a notable change in " + "; ".join(hints) + ". "
+                "Which date or period are you asking about?"
+            )
+        }
+
+    def route_after_change_detection(state: AgentState) -> Literal["clarify", "fetch_data"]:
+        return "clarify" if state.get("clarification") else "fetch_data"
 
     def fetch_data_node(state: AgentState) -> dict:
         intent = state["intent"]
@@ -280,6 +352,7 @@ def build_graph(
     graph.add_node("resolve_site", resolve_site_node)
     graph.add_node("resolve_category", resolve_category_node)
     graph.add_node("clarify", clarify_node)
+    graph.add_node("detect_change", detect_change_node)
     graph.add_node("fetch_data", fetch_data_node)
     graph.add_node("retrieve_notes", retrieve_notes_node)
     graph.add_node("format_answer", format_answer_node)
@@ -290,9 +363,14 @@ def build_graph(
     graph.add_conditional_edges(
         "resolve_category",
         route_after_category,
-        {"clarify": "clarify", "fetch_data": "fetch_data"},
+        {"clarify": "clarify", "detect_change": "detect_change"},
     )
     graph.add_edge("clarify", END)
+    graph.add_conditional_edges(
+        "detect_change",
+        route_after_change_detection,
+        {"clarify": "clarify", "fetch_data": "fetch_data"},
+    )
     graph.add_conditional_edges(
         "fetch_data",
         route_after_fetch,

@@ -2,6 +2,51 @@
 
 One entry per sprint merge, newest first.
 
+## Change-point detection for "why did X change" with no period (unreleased)
+
+Raised directly: when someone asks "why did it change" without saying
+which period, the bot shouldn't guess or silently show a snapshot that
+doesn't actually address "what changed" — it should look at the real
+data, notice where something happened, and ask.
+
+- Added `agent/change_detection.py`: `find_change_points()` ranks
+  day-over-day deltas in a metric series by a *robust* z-score (median +
+  median absolute deviation, not mean + standard deviation). Robustness
+  matters specifically because it can return more than one candidate: an
+  ordinary mean/stdev z-score is itself dragged around by the outliers
+  it's trying to detect, so a second, smaller-but-real event can score
+  *lower* once a bigger one is added to the series — median/MAD aren't
+  pulled off-center by a handful of extreme points.
+- `MIN_Z_SCORE = 6.0`, calibrated against the real seeded warehouse
+  (120 days, the default seed) rather than picked abstractly: across
+  every category/metric series, the 4 real injected events scored
+  7.97-27.65, and the single highest score among the ~70 series with no
+  injected event was 5.06. A textbook "3 sigma" threshold is nowhere
+  near strict enough at this scale — with dozens of series each
+  contributing ~100 deltas, *something* clears 3 sigma by pure chance
+  most of the time (a multiple-comparisons problem, not a flaw in the
+  statistic). Verified with the real seeded data: exactly the 4 real
+  events are flagged, nothing else, no misses.
+- `agent/graph.py` gained a `detect_change` node between category
+  resolution and data fetching: it runs only for a `wants_explanation`
+  question with no `date_range`/`comparison_range` given, and only
+  routes to `clarify` (mirroring the category-clarification pattern)
+  when a real change point was found — otherwise it falls through to
+  the existing snapshot answer unchanged.
+- Manually verified for real: "Why did image count change for Wireless
+  Earbuds?" (no period given) correctly found the real injected event
+  date and asked to confirm it; "What did image count change on laptop
+  chargers?" (no real event in that category) correctly fell through to
+  a snapshot instead of a false "notable change."
+- **Known limitation, not yet fixed**: replying to the clarification
+  with the confirmed date (e.g. `"2026-06-27"`) currently resolves to a
+  single-day value, not an automatic before/after comparison with notes
+  attached — `wants_explanation` from the original turn isn't carried
+  forward into that follow-up's fetch behavior. A real fix would turn a
+  confirmed change-point date into an automatic period comparison
+  (before vs. at/after that date) rather than a single-day lookup; not
+  built yet.
+
 ## Example category names in the clarifying question (unreleased)
 
 Raised directly: what happens when someone asking a question genuinely

@@ -329,3 +329,44 @@ written after the fact.
   didn't exist or resolved with low confidence. Rather than only reacting
   after the fact with a clarifying question, the sidebar shows the real
   catalog upfront via `ListCategoriesCommand`.
+
+## Post-sprint: change-point detection for "why" without a period
+
+- **Median + median-absolute-deviation, not mean + standard deviation.**
+  `find_change_points` ranks day-over-day deltas by a *robust* z-score
+  specifically because it can return more than one candidate date. An
+  ordinary mean/stdev z-score is itself dragged around by the outliers
+  it's supposed to detect — adding a second, genuinely real but smaller
+  event to a series can pull the mean and stdev up enough to make a
+  *first* real event score lower than it did alone, or even push it
+  below the threshold entirely. Median and MAD aren't pulled off-center
+  by a handful of extreme points, so two distinct real events can both
+  still score close to how significant they actually are.
+- **The threshold (6.0) was measured, not picked.** An initial pass at
+  3.0 — the textbook "looks statistically significant" bar — flagged 42
+  of 76 real category/metric series in the seeded warehouse, when only 4
+  have an actual injected event. The reason isn't a bug in the
+  statistic: with dozens of series each contributing ~100 day-over-day
+  deltas, the *maximum* of that many draws clears an ordinary 3-sigma
+  bar most of the time by pure chance (a multiple-comparisons problem).
+  Measuring the real seeded data directly — the 4 true events scored
+  7.97-27.65, the highest pure-noise series scored 5.06 — gave a
+  threshold with real margin on both sides, verified to flag exactly the
+  4 real events and nothing else.
+- **`detect_change_node` only ever *adds* a branch, never replaces the
+  existing snapshot fallback.** No candidates found (nothing stands out,
+  or a period was already given, or the question wasn't a "why"
+  question) falls through to `fetch_data` completely unchanged — a
+  question this can't help with is exactly as well-answered as before
+  the feature existed, never worse.
+- **Manually verified against the real seeded warehouse and OpenAI key**:
+  "why did image count change for Wireless Earbuds" (no period) found
+  the real injected event's actual date and asked to confirm it; the
+  same question shape for Laptop Chargers (no real event in that
+  category) correctly fell through to a snapshot rather than a false
+  positive.
+- **Known gap, left open** (see `docs/ISSUES.md`): confirming the
+  detected date with a follow-up doesn't yet turn into an automatic
+  before/after comparison with notes — it resolves to a single-day
+  value. `wants_explanation` isn't currently carried from the original
+  turn into how the confirmed date gets used.

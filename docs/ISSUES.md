@@ -36,6 +36,17 @@ entry is marked resolved (with the sprint that fixed it) or left open.
   `agent/graph.py`'s `AgentState`/`answer_question()` and `ui/app.py`
   now thread the actual chat history through on every turn.
 
+- **A "why did X change" question with no period silently showed a
+  snapshot instead of addressing "what changed."** Raised directly: the
+  model should notice a real change in the data and ask which one the
+  user means, not guess or stay quiet about it. **Fixed**: added
+  `agent/change_detection.py` (`find_change_points`, a robust z-score
+  over day-over-day deltas) and `agent/graph.py`'s `detect_change` node
+  — a `wants_explanation` question with no period now looks at the real
+  metric history and asks about a real, data-grounded change point
+  instead. See `docs/CHANGELOG.md` / `docs/DESIGN.md` for the threshold
+  calibration.
+
 ## Open
 
 - **Category resolution can only be as good as the embedding model lets
@@ -46,3 +57,12 @@ entry is marked resolved (with the sprint that fixed it) or left open.
   category," even though a human would understand it immediately. The
   category-list sidebar (Sprint 6+) mitigates this by letting a user see
   the real catalog instead of guessing, but doesn't eliminate it.
+
+- **Confirming a detected change point doesn't yet trigger an automatic
+  before/after comparison.** Replying to "I see a notable change around
+  DATE — which one?" with that date (e.g. `"2026-06-27"`) currently
+  resolves to a single-day snapshot value, not a period comparison with
+  notes attached — `wants_explanation` from the original turn isn't
+  carried into the follow-up's fetch behavior. The right fix is likely
+  turning a confirmed change-point date into an automatic "just before
+  vs. at/after that date" comparison; not built yet.
