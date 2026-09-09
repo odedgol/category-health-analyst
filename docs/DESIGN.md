@@ -257,16 +257,29 @@ written after the fact.
   behavior planned for category resolution back in the site-resolution
   entry above (in contrast to sites, which default, and dates, which ask
   the LLM).
-- **Manually verified against a freshly-seeded, real DuckDB warehouse**
-  (`scripts.seed_mock_data --reset`): `list_categories` returned all 18
-  fixture categories; `AliasHandler` resolved `"sneakers"` to `"Women's
-  Running Shoes"` with zero LLM calls; a real `CompareMetricPeriodsCommand`
-  call, run through `format_period_comparison`, produced a correct,
-  readable sentence. `build_adapters()` with a dummy API key reached the
-  real category-index embedding call before failing on the expected 401
-  — same wall Sprint 3/4 hit; this environment still has no real key to
-  verify the LLM-dependent paths (`extract_intent`, semantic category
-  resolution) beyond the `FakeChatModel` test suite.
+- **A `"low"`-confidence category match is never named in the clarifying
+  question.** Real end-to-end testing (below) found `"kicks"` landing as
+  the semantic handler's *top* candidate at a low raw score — and the
+  graph, as first written, still phrased that as "did you mean 'Board
+  Games'?", which reads as far more confident than a low-similarity
+  guess deserves. Fixed by branching on confidence tier in
+  `resolve_category_node`: only `"medium"` gets a named "did you mean";
+  `"low"` (and no match at all) gets an honest "I don't recognize that
+  category." The resolution logic itself — `resolve_category`, the
+  handlers, the confidence tiers — didn't change; only what the graph
+  does with a `"low"` result did.
+- **Manually verified end-to-end against a freshly-seeded, real DuckDB
+  warehouse, the real `category_resolution_index`/`category_notes`
+  Chroma collections, and this project's real `OPENAI_API_KEY`** — not
+  simulated with `FakeChatModel`. `answer_question()` correctly handled
+  a snapshot question, a date-range question, a month-over-month
+  comparison (which correctly pulled in grounded notes on its own,
+  having crossed `category_insights_unexpected_delta_threshold`), and a
+  "why" question that correctly retrieved and cited the real
+  taxonomy-migration notes. This same run is what caught the
+  low-confidence clarification-wording issue above — real testing, not
+  the test suite, found it, which is the whole reason to run it for real
+  and not stop at `FakeChatModel` coverage.
 
 ## Sprint 6 — Streamlit UI, final README
 
@@ -279,5 +292,8 @@ written after the fact.
   objects, not be serialized into a data cache and reconstructed.
 - **Manually verified the app boots**: `uv run streamlit run
   src/category_insights/ui/app.py` served HTTP 200 with a clean server
-  log against the real seeded warehouse. No browser automation tool was
-  available in this environment to drive an actual chat turn through it.
+  log against the real seeded warehouse and the real `OPENAI_API_KEY`. No
+  browser automation tool was available in this environment to drive an
+  actual chat turn through the rendered page — but the exact call the
+  page makes, `answer_question()`, was already verified for real in
+  Sprint 5's entry above.

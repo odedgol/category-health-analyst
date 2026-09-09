@@ -20,7 +20,7 @@ from category_insights.agent.intent_extraction import ExtractedFields
 from category_insights.agent.site_resolution import LearnedSiteAliases
 from category_insights.bootstrap import AdapterBundle
 from category_insights.db.repository import DuckDbRepository
-from category_insights.domain.models import Note
+from category_insights.domain.models import CategoryMatch, Note
 from category_insights.domain.ports import CategoryResolverIndex
 from category_insights.rag.notes_store import build_notes_index, get_or_create_notes_collection
 from category_insights.rag.retriever import ChromaNoteRetriever
@@ -45,6 +45,19 @@ class _EmptyResolverIndex:
 
     def search(self, mention: str, top_k: int = 3) -> list:
         return []
+
+
+class _FixedResolverIndex:
+    """Always returns the same single match, whatever the query."""
+
+    def __init__(self, match: CategoryMatch) -> None:
+        self._match = match
+
+    def index(self, categories: object) -> None:
+        pass
+
+    def search(self, mention: str, top_k: int = 3) -> list[CategoryMatch]:
+        return [self._match]
 
 
 def _build_adapters(
@@ -236,6 +249,60 @@ def test_clarifies_for_an_unrecognized_category(
     )
 
     assert "don't recognize" in answer
+
+
+def test_medium_confidence_match_is_offered_as_a_did_you_mean(
+    seeded_repository: DuckDbRepository,
+    fake_chat_model: FakeChatModel,
+    chroma_client: chromadb.ClientAPI,
+    fake_embedding_function: EmbeddingFunction,
+) -> None:
+    fake_chat_model.set_structured_response(
+        ExtractedFields, ExtractedFields(category_mention="something shoe-related")
+    )
+    adapters = _build_adapters(
+        seeded_repository, fake_chat_model, chroma_client, fake_embedding_function
+    )
+    medium_match = CategoryMatch(
+        category_id=1, name="Test Category A", score=0.6, confidence="medium"
+    )
+
+    answer = answer_question(
+        "How is something shoe-related doing?",
+        adapters,
+        _handlers(_FixedResolverIndex(medium_match)),
+        now=date(2026, 1, 10),
+    )
+
+    assert "Did you mean 'Test Category A'?" in answer
+
+
+def test_low_confidence_match_is_not_offered_as_a_did_you_mean(
+    seeded_repository: DuckDbRepository,
+    fake_chat_model: FakeChatModel,
+    chroma_client: chromadb.ClientAPI,
+    fake_embedding_function: EmbeddingFunction,
+) -> None:
+    # A "low"-confidence semantic hit is the search index's honest floor, not
+    # a guess worth naming — this must read as "I don't know," never as a
+    # specific (likely wrong) suggestion.
+    fake_chat_model.set_structured_response(
+        ExtractedFields, ExtractedFields(category_mention="something totally unrelated")
+    )
+    adapters = _build_adapters(
+        seeded_repository, fake_chat_model, chroma_client, fake_embedding_function
+    )
+    low_match = CategoryMatch(category_id=2, name="Test Category B", score=0.2, confidence="low")
+
+    answer = answer_question(
+        "How is something totally unrelated doing?",
+        adapters,
+        _handlers(_FixedResolverIndex(low_match)),
+        now=date(2026, 1, 10),
+    )
+
+    assert "don't recognize" in answer
+    assert "Test Category B" not in answer
 
 
 def test_wants_explanation_appends_matching_notes(

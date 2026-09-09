@@ -16,10 +16,10 @@ One entry per sprint merge, newest first.
   repository (136 tests).
 - Manually verified `uv run streamlit run src/category_insights/ui/app.py`
   boots cleanly (HTTP 200, no errors in the server log) against the real,
-  freshly-seeded warehouse. No browser automation tool was available in
-  this environment to drive an actual chat interaction, and no real
-  `OPENAI_API_KEY` to get a real answer past `extract_intent`'s LLM call
-  regardless — the same limitation Sprint 5's verification hit.
+  freshly-seeded warehouse and the project's real `OPENAI_API_KEY`. No
+  browser automation tool was available in this environment to drive an
+  actual chat turn through the page itself, but the same `answer_question`
+  call the page makes was already verified for real — see Sprint 5.
 
 ## Sprint 5 — Agent layer: LangGraph pipeline (unreleased)
 
@@ -66,19 +66,36 @@ One entry per sprint merge, newest first.
   unlike the notes collection (seeded offline), this one is small enough,
   and needs to stay in sync with the DB closely enough, that reindexing
   inline on startup is simpler than a separate seed script.
-- Manually verified against the real, freshly-seeded DuckDB warehouse
-  (`uv run python -m scripts.seed_mock_data --reset`): `list_categories`
-  returned all 18 real fixture categories; `ExactNameHandler`/
-  `AliasHandler` resolved `"sneakers"` to `"Women's Running Shoes"` with
-  no LLM involved; `CompareMetricPeriodsCommand` +
-  `format_period_comparison` produced a correct, readable comparison
-  (`aligned_tax_count` for August vs. September). `build_adapters()` was
-  also run end-to-end with a dummy `OPENAI_API_KEY`: it got as far as the
-  real category-index embedding call before failing on the expected
-  401 — same boundary Sprint 3/4 hit, and, like then, this environment
-  has no real key to verify further with. The intent-extraction and
-  semantic-category-resolution LLM paths are covered by `FakeChatModel`
-  tests only, not a real model call.
+- **A non-`"high"` category match is only offered as a "did you mean X?"
+  when it's `"medium"` confidence.** A `"low"` match (the semantic
+  handler's honest floor — real testing below saw a 0.23-similarity hit)
+  now reads as "I don't recognize that category," not a specific,
+  probably-wrong suggestion — naming a low-confidence guess reads as far
+  more confident than the match actually is.
+- Manually verified end-to-end against the real, freshly-seeded DuckDB
+  warehouse (`uv run python -m scripts.seed_mock_data --reset` +
+  `seed_notes_index --reset`), the real `category_resolution_index`
+  Chroma collection, and the project's real `OPENAI_API_KEY` — not just
+  `FakeChatModel`: `answer_question()` correctly answered a snapshot
+  question, a 2-week history question, and a month-over-month comparison
+  (with grounded notes attached, since it crossed
+  `category_insights_unexpected_delta_threshold` without asking "why");
+  a `"why did taxonomy alignment change"` question correctly retrieved
+  and cited the real taxonomy-migration notes; both exact-name and
+  alias mentions resolved with zero LLM calls, exactly as designed.
+  This run is what caught the low-confidence "did you mean" issue above:
+  `"kicks"` (a colloquial mention of Women's Running Shoes) landed as
+  the semantic handler's top match at a low raw similarity score, and
+  was, before the fix, offered as "did you mean 'Board Games'?" — wrong,
+  and worse, *confidently* wrong. Rerunning the same query showed the
+  exact score isn't perfectly stable call to call (OpenAI's embedding
+  API isn't bit-for-bit deterministic, and this project's category
+  corpus is small enough that a marginal mention can land right at the
+  medium/low boundary) — which is itself the argument for the fix: the
+  wording must be honest about *tier*, not chase an exact score. A
+  clearly medium-confidence mention (`"tents"` -> "Outdoor Camping
+  Tents") still correctly offers a "did you mean" after the fix — only
+  the `"low"`-tier wording changed.
 
 ## Self-learning site resolution (unreleased)
 

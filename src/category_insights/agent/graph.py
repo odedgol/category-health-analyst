@@ -108,13 +108,17 @@ def build_graph(
         categories = adapters.repository.list_categories()
         match = resolve_category(intent.category_mention, categories, category_handlers)
 
-        if match is None:
+        if match is None or match.confidence == "low":
+            # "low" is the semantic handler's honest floor, not a guess worth
+            # naming — at that similarity, surfacing it as "did you mean X?"
+            # would read as more confident than the match actually is.
             return {
                 "clarification": (
-                    f"I don't recognize a category called {intent.category_mention!r}."
+                    f"I don't recognize a category called {intent.category_mention!r}. "
+                    "Could you rephrase, or use the category's exact name?"
                 )
             }
-        if match.confidence != "high":
+        if match.confidence == "medium":
             return {
                 "category_match": match,
                 "clarification": (
