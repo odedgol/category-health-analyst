@@ -8,7 +8,11 @@ their own "don't trust the model blindly" case.
 from datetime import date
 
 from category_insights.agent.date_ranges import DateClassification
-from category_insights.agent.intent_extraction import ExtractedFields, extract_intent
+from category_insights.agent.intent_extraction import (
+    ExtractedFields,
+    _build_extraction_prompt,
+    extract_intent,
+)
 from tests.conftest import FakeChatModel
 
 
@@ -109,3 +113,41 @@ def test_comparison_phrase_is_resolved_independently_of_the_primary_range(
 
     assert intent.date_range is not None and intent.date_range.label == "this week"
     assert intent.comparison_range is not None and intent.comparison_range.label == "last week"
+
+
+def test_prompt_has_no_history_section_when_there_is_no_history(fixed_now: date) -> None:
+    prompt = _build_extraction_prompt("How is it doing?", fixed_now, [])
+
+    assert "Conversation so far" not in prompt
+    assert "Latest message: 'How is it doing?'" in prompt
+
+
+def test_prompt_includes_prior_turns_so_a_short_reply_reads_in_context(fixed_now: date) -> None:
+    # The bug this guards against: without history, a one-word reply to the
+    # agent's own clarifying question ("laptop chargers") is extracted with
+    # no idea what it's answering, so the same clarification gets asked
+    # again no matter what the user replies with.
+    history = [
+        ("user", "how are things going"),
+        ("assistant", "Which category are you asking about?"),
+    ]
+
+    prompt = _build_extraction_prompt("laptop chargers", fixed_now, history)
+
+    assert "Conversation so far" in prompt
+    assert "user: how are things going" in prompt
+    assert "assistant: Which category are you asking about?" in prompt
+    assert "Latest message: 'laptop chargers'" in prompt
+
+
+def test_extract_intent_accepts_history_without_erroring(
+    fixed_now: date, fake_chat_model: FakeChatModel
+) -> None:
+    fake_chat_model.set_structured_response(
+        ExtractedFields, ExtractedFields(category_mention="laptop chargers")
+    )
+    history = [("assistant", "Which category are you asking about?")]
+
+    intent = extract_intent("laptop chargers", fake_chat_model, fixed_now, history=history)
+
+    assert intent.category_mention == "laptop chargers"

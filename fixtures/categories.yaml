@@ -94,3 +94,7 @@ categories:
   - category_id: 18
     name: "Board Games"
     aliases: []
+
+  - category_id: 19
+    name: "Men's Running Shoes"
+    aliases: ["men's sneakers", "men's running sneakers"]

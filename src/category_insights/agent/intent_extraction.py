@@ -15,6 +15,14 @@ raw text by the same call, then resolved to actual dates by
 that module), not something this prompt is asked to compute directly:
 date arithmetic is exactly the kind of thing an LLM gets subtly wrong in
 ways that are hard to catch downstream.
+
+`history` (recent turns preceding the latest message) exists so a short
+follow-up — most importantly, an answer to `agent.graph`'s own
+clarifying question ("Which category are you asking about?" -> "laptop
+chargers") — is read in context instead of as an isolated, unanswerable
+question on its own. Without it, every message is extracted in a vacuum
+and a clarification can never actually be resolved: the same question
+gets asked again, forever, regardless of what the user replies with.
 """
 
 from datetime import date
@@ -26,6 +34,9 @@ from category_insights.agent.date_ranges import resolve_date_range
 from category_insights.domain.models import QueryIntent
 from category_insights.domain.ports import ChatModel
 from category_insights.metrics import METRICS, METRICS_BY_KEY
+
+ConversationTurn = tuple[str, str]
+"""One (role, content) pair, role being `"user"` or `"assistant"`."""
 
 
 class ExtractedFields(BaseModel):
@@ -39,13 +50,25 @@ class ExtractedFields(BaseModel):
     wants_explanation: bool = False
 
 
-def _build_extraction_prompt(question: str, now: date) -> str:
+def _build_extraction_prompt(question: str, now: date, history: list[ConversationTurn]) -> str:
     metric_list = "\n".join(f"- {metric.key}: {metric.description}" for metric in METRICS)
+    history_section = ""
+    if history:
+        transcript = "\n".join(f"{role}: {content}" for role, content in history)
+        history_section = (
+            "Conversation so far (oldest first) — if the latest message reads "
+            "like a short answer to the assistant's last message (e.g. just a "
+            "category name after being asked which category), extract it in "
+            "that context rather than treating it as a standalone question:\n"
+            f"{transcript}\n\n"
+        )
     return (
-        "Extract structured fields from this category-health question. "
-        "Leave a field null/empty when the question doesn't mention it — "
-        "never guess.\n\n"
+        "Extract structured fields describing the user's *overall* intent for "
+        "this category-health question. Leave a field null/empty when neither "
+        "the latest message nor the conversation context supplies it — never "
+        "guess.\n\n"
         f"Today's date is {now.isoformat()}.\n\n"
+        f"{history_section}"
         "Fields:\n"
         "- category_mention: the product category being asked about, in the "
         "user's own words, or null.\n"
@@ -59,12 +82,17 @@ def _build_extraction_prompt(question: str, now: date) -> str:
         "the user's own words, or null if this isn't a comparison.\n"
         "- wants_explanation: true if the user is asking *why* something "
         "happened, not just what the numbers are.\n\n"
-        f"Question: {question!r}"
+        f"Latest message: {question!r}"
     )
 
 
-def extract_intent(question: str, chat_model: ChatModel, now: date) -> QueryIntent:
-    """Turn a free-text question into a `QueryIntent`.
+def extract_intent(
+    question: str,
+    chat_model: ChatModel,
+    now: date,
+    history: list[ConversationTurn] | None = None,
+) -> QueryIntent:
+    """Turn the latest message (plus any preceding conversation) into a `QueryIntent`.
 
     `category_mention` and `site_mention` are returned unresolved (raw
     text) — resolving them is a later graph step. `metric_keys` is
@@ -75,7 +103,7 @@ def extract_intent(question: str, chat_model: ChatModel, now: date) -> QueryInte
     """
     structured_model = chat_model.with_structured_output(ExtractedFields)
     extracted = structured_model.invoke(
-        [HumanMessage(content=_build_extraction_prompt(question, now))]
+        [HumanMessage(content=_build_extraction_prompt(question, now, history or []))]
     )
 
     valid_metric_keys = [key for key in extracted.metric_keys if key in METRICS_BY_KEY]

@@ -2,6 +2,85 @@
 
 One entry per sprint merge, newest first.
 
+## Conversation history, category sidebar, and charts (unreleased)
+
+Found live-testing the Streamlit app: asking "how to ask questions" (no
+category mentioned) correctly produced "Which category are you asking
+about?" — but replying to it, with anything at all, produced the exact
+same clarifying question again. From the user's side the app looked
+stuck/frozen. Root cause: `agent.graph` had no memory of its own
+previous turn. Every message was extracted by `intent_extraction` in
+total isolation, so a short reply like `"laptop chargers"` had no way to
+be understood as *answering* the prior clarification rather than being a
+new, categoryless question on its own.
+
+- `intent_extraction.extract_intent()` gained a `history:
+  list[ConversationTurn]` parameter (recent turns, oldest first),
+  included in the extraction prompt with an explicit instruction to read
+  a short reply in context. `agent.graph.AgentState`/`answer_question()`
+  and `ui/app.py` thread the real chat history through on every turn —
+  `ui/app.py` caps it at the last `_HISTORY_TURNS` (6) messages, so
+  prompt size doesn't grow unbounded over a long conversation.
+  `date_ranges`/`site_resolution` are untouched — this is specific to
+  category clarification, the only multi-turn flow the graph has.
+- Manually verified for real (real `OPENAI_API_KEY`, real DB): "how to
+  ask questions" → "Which category are you asking about?" → "laptop
+  chargers" now correctly resolves to the Laptop Chargers category and
+  returns its real data, instead of asking the same question again.
+- A wiring-level test (`test_history_is_threaded_from_answer_question_
+  into_extract_intent`) confirms `history` actually reaches
+  `extract_intent` — `FakeChatModel` can't prove the *model* uses it
+  correctly (it ignores prompt content), only that the plumbing is
+  correct; the real-key run above is what proves the behavior.
+
+Also, requested alongside the fix:
+
+- **Category-list sidebar**: `ui/app.py` now shows every known category
+  and its aliases in the sidebar (via `ListCategoriesCommand` — the same
+  Command class `mcp_server.server` exposes, not a raw repository call),
+  so a user can see the actual catalog instead of guessing at names and
+  hitting the clarification flow.
+- **Chart alongside the text answer**: `answer_question()` now returns
+  `AnswerResult` (a `text: str` plus whichever of `metric_series` /
+  `comparisons` / `snapshot` backed it) instead of a bare string.
+  `ui/app.py` renders a line chart for a history question, a bar chart
+  for a comparison or a snapshot, next to the same text answer as
+  before. `format_answer_node`/`format_answer` (the text) and the chart
+  are two views of the *same* underlying data, not one derived from the
+  other — `fetch_data_node` computes both from one tool call per metric,
+  never twice.
+- Manually verified `AnswerResult`'s chart-relevant fields against real
+  data for all three shapes (snapshot, multi-day history, month-over-
+  month comparison) — correct values, correctly shaped for
+  `st.line_chart`/`st.bar_chart`.
+
+## Category catalog: add the missing men's shoes category (unreleased)
+
+Found live-testing the Streamlit app: asking about "Men's Running Shoes"
+always resolved to "Women's Running Shoes" instead. Not a matching bug —
+the mock catalog (`fixtures/categories.yaml`) genuinely had no men's
+shoes category at all, only "Women's Running Shoes" and, unrelatedly,
+"Men's Dress Shirts." Every resolver (substring and semantic alike) was
+correctly finding the *closest available* category; there just wasn't a
+correct one to find.
+
+- Added category 19, "Men's Running Shoes" (aliases: `"men's sneakers"`,
+  `"men's running sneakers"`), to `fixtures/categories.yaml` — a real
+  e-commerce catalog would split running shoes by gender, and the mock
+  data should model that the same way it already does for "Women's
+  Running Shoes" and "Men's Dress Shirts" separately.
+- Deliberately no alias overlap with category 1's aliases (`"sneakers"`,
+  `"running sneakers"`, `"running shoes"`) — an ambiguous, ungendered
+  mention like `"sneakers"` alone should still resolve to whichever
+  category actually owns that exact alias, not silently redirect based
+  on catalog-authoring order.
+- Manually verified against a fresh reseed: `"Men's Running Shoes"`
+  (exact name) and `"men's sneakers"` (alias) both resolve to category
+  19 with zero LLM calls and return its own real metric data; a
+  genuinely gender-ambiguous query (`"Shoes in US"`) still correctly
+  falls back to a "did you mean" guess, since nothing in the mention
+  itself disambiguates which one is meant.
+
 ## Sprint 6 — Streamlit UI, final README (unreleased)
 
 - Added `ui/app.py`: a Streamlit chat UI over `agent.graph.answer_question`

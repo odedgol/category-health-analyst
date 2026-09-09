@@ -283,9 +283,13 @@ written after the fact.
 
 ## Sprint 6 — Streamlit UI, final README
 
-- **`ui/app.py` depends on nothing but `agent.graph.answer_question`** —
-  no DB/Chroma/LLM import in the file at all. The hexagonal boundary
-  promised since Sprint 0 holds all the way to the presentation layer.
+- **`ui/app.py` never touches a raw DB/Chroma/LLM connection directly** —
+  the chat itself goes through nothing but `agent.graph.answer_question`;
+  the one other thing the page reads (the category-list sidebar, added
+  post-sprint, see below) goes through `ListCategoriesCommand`, the same
+  Command class `mcp_server.server` exposes. The hexagonal boundary
+  promised since Sprint 0 holds all the way to the presentation layer —
+  "no adapter imports," not "no imports below `agent`."
 - **`st.cache_resource`, not `st.cache_data`, holds the `AdapterBundle`**
   across Streamlit reruns — it wraps live connections (a DuckDB handle, a
   Chroma client, an LLM client) that must survive a rerun as the same
@@ -297,3 +301,31 @@ written after the fact.
   actual chat turn through the rendered page — but the exact call the
   page makes, `answer_question()`, was already verified for real in
   Sprint 5's entry above.
+
+## Post-sprint: conversation history, category sidebar, charts
+
+- **Clarification is the only multi-turn flow the graph has, and it was
+  the one thing extraction couldn't see.** `extract_intent` ran on each
+  message alone; a reply to the graph's own "which category?" had no
+  signal that it *was* a reply. `history: list[ConversationTurn]`
+  (plain `(role, content)` tuples, not a LangChain message type — the
+  extraction prompt is the only place that reads them, so there's
+  nothing to gain from a heavier type) is now threaded from
+  `ui/app.py` → `answer_question` → `AgentState` → `extract_intent`.
+  `ui/app.py` caps it at the last 6 messages: category clarification is
+  the only thing that needs it, and that's always the *immediately*
+  preceding turn, not deep history.
+- **`AnswerResult` replaces a bare `str` as `answer_question`'s return
+  type.** The text answer and a chart are two renderings of the *same*
+  underlying data (a snapshot, a series, or a set of comparisons) —
+  `AnswerResult` carries both so the UI never has to re-derive or
+  re-fetch numbers it already has just to plot them. `fetch_data_node`
+  populates exactly one of `metric_series`/`comparisons`/`snapshot`,
+  mirroring its own three branches; `ui/app.py`'s `_build_chart` switches
+  on the same three cases to pick `st.line_chart` vs `st.bar_chart`.
+- **The category sidebar is a direct answer to "how would I know what to
+  ask?"** — real testing kept surfacing mentions (`"kicks"`, `"Men's
+  Running Shoes"` before the fixture fix, `"footwear"`) that either
+  didn't exist or resolved with low confidence. Rather than only reacting
+  after the fact with a clarifying question, the sidebar shows the real
+  catalog upfront via `ListCategoriesCommand`.
