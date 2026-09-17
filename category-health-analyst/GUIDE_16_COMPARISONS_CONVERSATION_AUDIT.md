@@ -37,38 +37,34 @@ returns its observation and explains why no delta can be calculated.
 
 | Owner / class | Method or function | What it receives | What it does / returns |
 |---|---|---|---|
-| CLI module (no class) | `main()` | Environment and optional `--chat` | Creates repository, catalogs, persistent sink, agent and session |
-| Mock module (no class) | `seed_mock_data(repository)` | Empty MetricsRepository | Inserts reproducible aggregate observations |
-| Adapter module (no class) | `create_category_health_deep_agent(...)` | Model and dependencies | Constructs the graph and two closed domain tools |
-| Adapter module (no class) | `build_analysis_tool(...)` | Repository, catalogs, audit sink | Creates ToolRegistry and AnalyticsAgent and returns a nested function |
-| Adapter module (no class) | `build_metric_catalog_tool(...)` | MetricCatalog and audit sink | Returns the nested `list_available_metrics()` discovery function |
+| Bootstrap module | `create_demo_conversation_runtime(...)` | Project paths and model settings | Assembles DuckDB, mock data, catalogs, audit, service, agent and session |
+| Adapter module | `create_category_health_deep_agent(...)` | Model, application service and audit sink | Constructs the graph and two closed domain tools |
 | AnalysisSession | `ask(question)` | User text and existing session history | Starts a fresh request trace, supplies today's date and invokes the graph |
 | Framework graph | `invoke(...)` | Message history and tool schema | Runs model/tool iterations, returning messages |
-| Nested adapter function (no class) | `list_available_metrics()` | No arguments | Returns every catalog metric, unit and accepted name; audits the complete object |
-| Nested adapter function (no class) | `analyze_category_health(...)` | Model-selected scope and intent | Reuses the request audit, calls registry, agent and output projection |
-| ToolRegistry | `resolve(call, audit)` | ToolCall and shared AuditTrail | Audits tool selection and dispatches its registered handler |
-| ToolRegistry | `_analyze_category_health(...)` | Tool arguments | Validates, resolves catalogs and constructs AnalyticsQuerySpec |
+| Nested adapter function | `list_available_metrics()` | No arguments | Calls `CategoryHealthService.list_metrics()` |
+| Nested adapter function | `analyze_category_health(...)` | Model-selected scope and intent | Calls `CategoryHealthService.analyze()` with the current trace |
+| CategoryHealthService | `analyze(arguments, audit)` | Untrusted tool arguments | Coordinates resolution, execution and output projection |
+| AnalysisRequestResolver | `resolve(arguments, audit)` | Tool arguments | Validates, resolves catalogs and constructs `AnalyticsQuerySpec` |
 | AnalyzeCategoryHealthInput | `model_validate(...)`, inherited from Pydantic | Raw arguments | Parses the schema and calls `validate_scope()` |
 | AnalyzeCategoryHealthInput | `validate_scope()` | Parsed fields | Rejects partial/reversed dates, excessive ranges and invalid combinations |
 | CategoryCatalog | `resolve()` / `candidates_by_name()` | Category reference | Returns a unique category or supplies ambiguity candidates |
 | SiteCatalog / MetricCatalog | `resolve()` | Human reference | Resolves static aliases to stable IDs |
 | AnalyzeCategoryHealthInput | `date_range()` / `comparison_range()` | Validated dates | Constructs DateRange objects |
 | AnalyticsQuerySpec | Pydantic constructor | Resolved IDs and intent | Validates query requirements, including two distinct comparison sites |
-| AnalyticsAgent | `run(query, audit)` | QuerySpec and same audit | Validates, builds plan, retrieves data and returns AgentResult |
+| AnalyticsEngine | `run(query, audit)` | Query spec and same audit | Validates, builds a plan, retrieves data and returns `AnalyticsResult` |
 | Planner module (no class) | `build_plan(query)` | QuerySpec | Returns a deterministic ExecutionPlan |
-| AnalyticsAgent | `_execute(plan)` | ExecutionPlan | Calls repository for selected sites and ranges |
+| AnalyticsEngine | `_execute(plan)` | ExecutionPlan | Calls repository for selected sites and ranges |
 | DuckDbMetricsRepository | `latest_per_day()` | Category, site and dates | Returns all columns using highest LMD per day |
 | DuckDbMetricsRepository | `available_date_range()` | Category and site | Returns actual minimum and maximum observed dates, independent of the requested range |
 | DuckDbMetricsRepository | `_to_model()` | DB tuple | Returns CategorySiteMetrics with UTC LMD |
-| Output module (no class) | `expose_requested_metrics(result)` | Complete AgentResult | Selects requested values, detects missing data and chooses comparison pairs |
+| Output module | `expose_requested_metrics(result)` | Complete `AnalyticsResult` | Selects requested values, detects missing data and chooses comparison pairs |
 | Output module (no class) | `compare_observations(...)` | Two source rows, metric and method | Returns one typed deterministic comparison |
 | Nested adapter function | `analyze_category_health(...)` resumes | AnalysisResponse | Audits complete calculation output and returns JSON to the model |
 | AnalysisSession | `ask(...)` resumes | Framework result messages | Audits returned messages and final answer; retains history for the next question |
 | CLI module | `main()` resumes | Answer and trace | Prints readable text, trace ID, errors and audited objects |
 
-Calculation currently lives in `agent/output.py`; there is no separate calculation
-engine class. The old `compare_percentages()` utility remains, but the current
-output path uses `compare_observations()`.
+Calculation and projection live in `application/output.py`. The output path uses
+`compare_observations()` and receives complete rows from `AnalyticsEngine`.
 
 ## Questions and clarification
 

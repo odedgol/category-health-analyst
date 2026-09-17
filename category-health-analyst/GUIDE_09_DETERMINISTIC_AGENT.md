@@ -38,7 +38,7 @@ AnalyticsQuerySpec
    MetricsRepository
         |
         v
-     AgentResult
+   AnalyticsResult
         |
         v
      AuditTrail

@@ -55,8 +55,8 @@ September 10, 2026. A request for September 12 therefore correctly returns
 `no_data`; rows on September 9 or 10 do not satisfy a September 12 filter.
 
 This explanation is not hard-coded into the UI. `MetricsRepository.available_date_range()`
-is implemented by both the in-memory and DuckDB adapters. `AnalyticsAgent` attaches
-that range to `QueryData`, and `expose_requested_metrics()` adds it to the warnings
+is implemented by both the in-memory and DuckDB adapters. `AnalyticsEngine` attaches
+that range to `QueryResultGroup`, and `expose_requested_metrics()` adds it to the warnings
 when the requested scope contains no rows. The model is instructed to distinguish
 the requested dates from the available dates in its answer.
 

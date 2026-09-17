@@ -168,31 +168,33 @@ The repository selected the wrong update.
 The answer formatting was incorrect.
 ```
 
-## Recommended implementation order
+## Current implementation
 
-We should not begin by connecting a live LLM. First, implement a local tool registry and deterministic argument validation:
+The project uses two closed Deep Agent tools and an explicit deterministic resolver:
 
-1. define tool input models;
-2. register the available tools;
-3. validate a manually constructed tool call;
-4. resolve catalogs;
-5. convert the validated call into `AnalyticsQuerySpec`;
-6. execute the existing deterministic agent;
-7. audit every transition;
-8. only then connect an LLM provider.
+1. `create_analysis_tool()` exposes `analyze_category_health`;
+2. `AnalyzeCategoryHealthInput` validates raw model arguments;
+3. `AnalysisRequestResolver.resolve()` resolves catalogs and creates an
+   `AnalyticsQuerySpec`;
+4. `CategoryHealthService.analyze()` executes the deterministic pipeline;
+5. `create_metric_catalog_tool()` exposes metric discovery separately;
+6. the harness profile removes filesystem, shell and subagent tools.
 
-This gives us a fully testable boundary before introducing model variability.
+There is no generic registry because the application has one analysis use case.
+Adding a registry around one handler would add indirection without isolating a real
+runtime variation. Deep Agents owns framework-level tool dispatch; application code
+owns validation and resolution.
 
 ## Acceptance criteria
 
 This guide is complete when:
 
-- a known tool can be selected by name;
+- only a known tool can be selected by name;
 - its arguments are validated;
 - category, site, and metric names resolve through catalogs;
 - ambiguous names produce a clarification requirement;
 - a validated tool call becomes an `AnalyticsQuerySpec`;
-- the existing deterministic agent executes it;
+- the deterministic application service executes it;
 - the entire path appears in the audit trail.
 
 ## Next guide
