@@ -1,0 +1,111 @@
+sites:
+  - site_id: 0
+    name: US
+    country: United States
+    abbreviation: US
+    aliases: [US, USA, United States, America, ebay.com]
+  - site_id: 2
+    name: Canada
+    country: Canada
+    abbreviation: CA
+    aliases: [Canada, CA, ebay.ca]
+  - site_id: 3
+    name: UK
+    country: United Kingdom
+    abbreviation: UK
+    aliases: [UK, United Kingdom, Britain, Great Britain, ebay.co.uk]
+  - site_id: 15
+    name: Australia
+    country: Australia
+    abbreviation: AU
+    aliases: [Australia, AU, ebay.com.au]
+  - site_id: 16
+    name: Austria
+    country: Austria
+    abbreviation: AT
+    aliases: [Austria, AT, ebay.at]
+  - site_id: 23
+    name: Belgium French
+    country: Belgium
+    abbreviation: BEFR
+    aliases: [Belgium French, Belgium-French, BEFR, ebay.be]
+  - site_id: 71
+    name: France
+    country: France
+    abbreviation: FR
+    aliases: [France, French, FR, ebay.fr]
+  - site_id: 77
+    name: Germany
+    country: Germany
+    abbreviation: DE
+    aliases: [Germany, German, Deutschland, DE, ebay.de]
+  - site_id: 101
+    name: Italy
+    country: Italy
+    abbreviation: IT
+    aliases: [Italy, Italian, IT, ebay.it]
+  - site_id: 123
+    name: Belgium Dutch
+    country: Belgium
+    abbreviation: BENL
+    aliases: [Belgium Dutch, Belgium-Dutch, BENL]
+  - site_id: 146
+    name: Netherlands
+    country: Netherlands
+    abbreviation: NL
+    aliases: [Netherlands, Dutch, NL, ebay.nl]
+  - site_id: 186
+    name: Spain
+    country: Spain
+    abbreviation: ES
+    aliases: [Spain, Spanish, ES, ebay.es]
+  - site_id: 193
+    name: Switzerland
+    country: Switzerland
+    abbreviation: CH
+    aliases: [Switzerland, Swiss, CH, ebay.ch]
+  - site_id: 197
+    name: Czechia
+    country: Czechia
+    abbreviation: CZ
+    aliases: [Czechia, Czech Republic, CZ]
+  - site_id: 201
+    name: Hong Kong
+    country: Hong Kong
+    abbreviation: HK
+    aliases: [Hong Kong, HongKong, HK, ebay.com.hk]
+  - site_id: 203
+    name: India
+    country: India
+    abbreviation: IN
+    aliases: [India, IN, ebay.in]
+  - site_id: 205
+    name: Ireland
+    country: Ireland
+    abbreviation: IE
+    aliases: [Ireland, Irish, IE, ebay.ie]
+  - site_id: 207
+    name: Malaysia
+    country: Malaysia
+    abbreviation: MY
+    aliases: [Malaysia, MY, ebay.com.my]
+  - site_id: 211
+    name: Philippines
+    country: Philippines
+    abbreviation: PH
+    aliases: [Philippines, Philippine, PH, ebay.ph]
+  - site_id: 212
+    name: Poland
+    country: Poland
+    abbreviation: PL
+    aliases: [Poland, Polish, PL, ebay.pl]
+  - site_id: 215
+    name: Russia
+    country: Russia
+    abbreviation: RU
+    aliases: [Russia, Russian, RU]
+  - site_id: 216
+    name: Singapore
+    country: Singapore
+    abbreviation: SG
+    aliases: [Singapore, SG, ebay.com.sg]

@@ -1,0 +1,36 @@
+[project]
+name = "category-health-analyst"
+version = "0.1.0"
+description = "An educational category health analytics assistant"
+requires-python = ">=3.12"
+dependencies = [
+    "duckdb>=1.1",
+    "deepagents==0.7.13",
+    "langchain==1.4.0",
+    "langchain-openai==1.6.1",
+    "langfuse>=4,<5",
+    "mcp[cli]>=2,<3",
+    "pydantic>=2.9",
+    "python-dotenv>=1.0,<2",
+    "pyyaml>=6.0",
+    "streamlit>=1.49,<2",
+]
+
+[project.scripts]
+category-health-mcp = "category_health.mcp_server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/category_health"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

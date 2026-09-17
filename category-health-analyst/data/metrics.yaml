@@ -1,0 +1,29 @@
+metrics:
+  - id: image_coverage_percentage
+    display_name: Image coverage percentage
+    unit: percentage
+    aliases: [image percentage, image coverage, percentage with images]
+  - id: image_count
+    display_name: Image count
+    unit: count
+    aliases: [number of images, images count, total images, image total]
+  - id: aligned_aspects_count
+    display_name: Aligned aspects count
+    unit: count
+    aliases: [aligned aspects, taxonomy aligned, aligned to taxonomy]
+  - id: misaligned_aspects_count
+    display_name: Misaligned aspects count
+    unit: count
+    aliases: [misaligned aspects, taxonomy mismatch, not aligned taxonomy]
+  - id: aligned_aspects_percentage
+    display_name: Aligned aspects percentage
+    unit: percentage
+    aliases: [aligned percentage, percentage aligned, taxonomy alignment percentage]
+  - id: misaligned_aspects_percentage
+    display_name: Misaligned aspects percentage
+    unit: percentage
+    aliases: [misaligned percentage, percentage misaligned, taxonomy mismatch percentage]
+  - id: has_title
+    display_name: Has title
+    unit: boolean
+    aliases: [title exists, has a title, product title present]
