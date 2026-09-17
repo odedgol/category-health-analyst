@@ -1,7 +1,7 @@
 import pytest
 from langchain_openai import ChatOpenAI
 
-from category_health.models import (
+from category_health.model_provider import (
     ModelProvider,
     build_agent_model,
     load_model_settings,

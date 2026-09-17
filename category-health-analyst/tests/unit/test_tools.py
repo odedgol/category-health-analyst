@@ -1,8 +1,11 @@
 from datetime import date
 
 import pytest
-from category_health.agent.tools import ToolCall, ToolRegistry, ToolResolutionError
-from category_health.audit import InMemoryAuditSink
+from category_health.application.requests import (
+    AnalysisRequestResolver,
+    ToolResolutionError,
+)
+from category_health.audit import AuditTrail, InMemoryAuditSink
 from category_health.catalogs.catalogs import (
     MetricCatalog,
     MetricDefinition,
@@ -12,11 +15,11 @@ from category_health.catalogs.catalogs import (
 from category_health.catalogs.categories import CategoryCatalog, CategoryDefinition
 
 
-def _registry(
+def _resolver(
     category_catalog: CategoryCatalog | None = None,
-) -> tuple[ToolRegistry, InMemoryAuditSink]:
+) -> tuple[AnalysisRequestResolver, InMemoryAuditSink]:
     sink = InMemoryAuditSink()
-    registry = ToolRegistry(
+    resolver = AnalysisRequestResolver(
         category_catalog=category_catalog
         or CategoryCatalog(
             (
@@ -39,31 +42,30 @@ def _registry(
         ),
         audit_sink=sink,
     )
-    return registry, sink
+    return resolver, sink
 
 
-def test_registry_resolves_trend_tool_to_query_and_audits_resolution() -> None:
-    registry, sink = _registry()
+def test_resolver_builds_trend_query_and_audits_resolution() -> None:
+    resolver, sink = _resolver()
+    audit = AuditTrail(sink)
 
-    result = registry.resolve(
-        ToolCall(
-            name="analyze_category_health",
-            arguments={
-                "intent": "trend",
-                "category": "Armor",
-                "sites": ["Deutschland"],
-                "metrics": ["image coverage"],
-                "start_date": date(2026, 9, 1),
-                "end_date": date(2026, 9, 7),
-            },
-        )
+    result = resolver.resolve(
+        {
+            "intent": "trend",
+            "category": "Armor",
+            "sites": ["Deutschland"],
+            "metrics": ["image coverage"],
+            "start_date": date(2026, 9, 1),
+            "end_date": date(2026, 9, 7),
+        },
+        audit=audit,
     )
 
-    assert result.query.category_id == 100
-    assert result.query.site_ids == (77,)
-    assert result.query.metric_ids == ("image_coverage_percentage",)
-    assert result.query.is_executable
-    assert [event.step for event in sink.for_trace(result.audit.trace_id)] == [
+    assert result.category_id == 100
+    assert result.site_ids == (77,)
+    assert result.metric_ids == ("image_coverage_percentage",)
+    assert result.is_executable
+    assert [event.step for event in sink.for_trace(audit.trace_id)] == [
         "select_tool",
         "select_tool",
         "validate_tool_arguments",
@@ -79,8 +81,8 @@ def test_registry_resolves_trend_tool_to_query_and_audits_resolution() -> None:
     ]
 
 
-def test_registry_rejects_ambiguous_category() -> None:
-    registry, _ = _registry(
+def test_resolver_rejects_ambiguous_category() -> None:
+    resolver, _ = _resolver(
         CategoryCatalog(
             (
                 CategoryDefinition(category_id=100, name="Armor"),
@@ -90,25 +92,30 @@ def test_registry_rejects_ambiguous_category() -> None:
     )
 
     with pytest.raises(ToolResolutionError, match="ambiguous") as error:
-        registry.resolve(
-            ToolCall(
-                name="analyze_category_health",
-                arguments={
-                    "intent": "trend",
-                    "category": "Armor",
-                    "sites": ["Germany"],
-                    "metrics": ["image coverage"],
-                    "start_date": "2026-09-01",
-                    "end_date": "2026-09-07",
-                },
-            )
+        resolver.resolve(
+            {
+                "intent": "trend",
+                "category": "Armor",
+                "sites": ["Germany"],
+                "metrics": ["image coverage"],
+                "start_date": "2026-09-01",
+                "end_date": "2026-09-07",
+            }
         )
 
     assert error.value.unresolved_fields == ("category",)
 
 
-def test_registry_rejects_unknown_tool() -> None:
-    registry, _ = _registry()
+def test_resolver_rejects_unexpected_arguments() -> None:
+    resolver, _ = _resolver()
 
-    with pytest.raises(ToolResolutionError, match="Unknown tool"):
-        registry.resolve(ToolCall(name="run_sql", arguments={}))
+    with pytest.raises(ValueError, match="unexpected"):
+        resolver.resolve(
+            {
+                "intent": "snapshot",
+                "category": "Armor",
+                "sites": ["Germany"],
+                "metrics": ["image coverage"],
+                "unexpected": True,
+            }
+        )

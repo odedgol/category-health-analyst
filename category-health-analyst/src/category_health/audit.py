@@ -147,6 +147,16 @@ class AuditTrail:
             return self._sequence
 
     @contextmanager
+    def as_current(self) -> Iterator["AuditTrail"]:
+        """Make this trace available to nested adapters for one explicit scope."""
+
+        token = current_audit.set(self)
+        try:
+            yield self
+        finally:
+            current_audit.reset(token)
+
+    @contextmanager
     def step(
         self,
         name: str,

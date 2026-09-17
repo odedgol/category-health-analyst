@@ -1,9 +1,33 @@
 """Conversation history and one audit trace per user turn."""
 
+import json
 from datetime import date, datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
-from category_health.audit import AuditSink, AuditTrail, current_audit
+from langchain_core.messages import ToolMessage
+
+from category_health.audit import AuditSink, AuditTrail
+
+
+def _latest_analysis_output(messages: list[object]) -> dict[str, Any] | None:
+    """Return the latest structured analysis tool result from model messages."""
+
+    for message in reversed(messages):
+        if not isinstance(message, ToolMessage):
+            continue
+        try:
+            payload = json.loads(message.content)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if (
+            isinstance(payload, dict)
+            and payload.get("status") in {"ok", "partial", "no_data"}
+            and "values" in payload
+            and "comparisons" in payload
+        ):
+            return payload
+    return None
 
 
 class AnalysisSession:
@@ -24,6 +48,7 @@ class AnalysisSession:
         self.timezone = ZoneInfo(timezone)
         self.messages = []
         self.last_trace_id = None
+        self.last_analysis_output: dict[str, Any] | None = None
         self.today = today
         self.session_id = session_id
         self.trace_name = trace_name
@@ -32,6 +57,7 @@ class AnalysisSession:
     def ask(self, question: str):
         if not question.strip():
             raise ValueError("Please enter a question.")
+        self.last_analysis_output = None
         audit = AuditTrail(
             self.audit_sink,
             trace_name=self.trace_name,
@@ -39,9 +65,8 @@ class AnalysisSession:
             tags=self.trace_tags,
         )
         self.last_trace_id = audit.trace_id
-        token = current_audit.set(audit)
         today = (self.today or datetime.now(self.timezone).date()).isoformat()
-        try:
+        with audit.as_current():
             with audit.step(
                 "user_request",
                 input_summary={"question_length": len(question), "today": today},
@@ -75,6 +100,5 @@ class AnalysisSession:
                     {"status": "ok", "answer": answer_content}
                 )
                 self.messages = result["messages"]
+                self.last_analysis_output = _latest_analysis_output(self.messages)
                 return result["messages"][-1]
-        finally:
-            current_audit.reset(token)

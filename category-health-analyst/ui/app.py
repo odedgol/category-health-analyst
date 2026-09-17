@@ -4,26 +4,22 @@ import json
 from pathlib import Path
 from uuid import uuid4
 
-import duckdb
 import streamlit as st
-from category_health.agent.deep_agent import create_category_health_deep_agent
-from category_health.agent.session import AnalysisSession
-from category_health.catalogs.catalogs import load_metric_catalog, load_site_catalog
-from category_health.catalogs.categories import load_category_catalog
+from category_health.bootstrap import (
+    ConversationRuntime,
+    create_demo_conversation_runtime,
+)
 from category_health.charts import build_chart_specs
 from category_health.config import load_local_environment
-from category_health.models import (
+from category_health.model_provider import (
     ModelProvider,
-    build_agent_model,
+    ModelSettings,
     load_model_settings,
     local_server_error,
 )
-from category_health.observability import create_audit_sink
-from category_health.repositories.duckdb import DuckDbMetricsRepository
-from category_health.repositories.mock_data import seed_mock_data
 
 PROJECT_ROOT = Path(__file__).parents[1]
-RUNTIME_VERSION = 8
+RUNTIME_VERSION = 10
 
 load_local_environment(PROJECT_ROOT / ".env")
 
@@ -44,82 +40,39 @@ def answer_text(content: object) -> str:
     return json.dumps(content, indent=2, default=str)
 
 
-def create_runtime() -> dict[str, object]:
+def create_runtime(model_settings: ModelSettings) -> ConversationRuntime:
     """Create isolated mock data, conversation state and audit for one browser session."""
 
     session_id = str(uuid4())
-    audit_sink = create_audit_sink(
-        PROJECT_ROOT / "audit" / "ui" / f"{session_id}.jsonl"
+    return create_demo_conversation_runtime(
+        PROJECT_ROOT,
+        audit_path=PROJECT_ROOT / "audit" / "ui" / f"{session_id}.jsonl",
+        source="streamlit",
+        session_id=session_id,
+        model_settings=model_settings,
     )
-    connection = duckdb.connect(":memory:")
-    repository = DuckDbMetricsRepository(connection)
-    seed_mock_data(repository)
-    site_catalog = load_site_catalog(PROJECT_ROOT / "data" / "sites.yaml")
-    metric_catalog = load_metric_catalog(PROJECT_ROOT / "data" / "metrics.yaml")
-    model_settings = load_model_settings()
-    model = build_agent_model(model_settings)
-    agent = create_category_health_deep_agent(
-        model=model,
-        harness_profile_key=model_settings.harness_profile_key,
-        repository=repository,
-        category_catalog=load_category_catalog(PROJECT_ROOT / "data" / "categories_source.txt"),
-        site_catalog=site_catalog,
-        metric_catalog=metric_catalog,
-        audit_sink=audit_sink,
-    )
-    return {
-        "version": RUNTIME_VERSION,
-        "session_id": session_id,
-        "provider": model_settings.provider.value,
-        "model": model_settings.display_name,
-        "base_url": model_settings.base_url,
-        "connection": connection,
-        "agent": agent,
-        "audit_sink": audit_sink,
-        "analysis_session": AnalysisSession(
-            agent,
-            audit_sink,
-            session_id=session_id,
-            trace_name="category-health-streamlit-request",
-            trace_tags=("category-health", "streamlit", "mock-data"),
-        ),
-        "site_labels": {site.site_id: site.country for site in site_catalog.sites},
-        "metric_labels": {
-            metric.metric_id: metric.display_name for metric in metric_catalog.metrics
-        },
-    }
 
 
-def reset_conversation(runtime: dict[str, object]) -> None:
+def reset_conversation(runtime: ConversationRuntime) -> None:
     """Clear model and UI history while retaining the session's mock database."""
 
-    runtime["session_id"] = str(uuid4())
-    runtime["analysis_session"] = AnalysisSession(
-        runtime["agent"],
-        runtime["audit_sink"],
-        session_id=runtime["session_id"],
-        trace_name="category-health-streamlit-request",
-        trace_tags=("category-health", "streamlit", "mock-data"),
-    )
+    runtime.start_new_conversation()
     st.session_state.chat_messages = []
     st.session_state.last_trace_id = None
 
 
-def charts_for_trace(runtime: dict[str, object], trace_id: object) -> list[dict]:
-    """Read the last successful structured result for one request trace."""
+def charts_for_analysis(
+    runtime: ConversationRuntime,
+    analysis_output: dict | None,
+) -> list[dict]:
+    """Build charts directly from the structured analysis tool result."""
 
-    events = runtime["audit_sink"].for_trace(trace_id)
-    outputs = [
-        event.output_object
-        for event in events
-        if event.step == "calculate_and_project" and event.status.value == "succeeded"
-    ]
-    if not outputs:
+    if analysis_output is None:
         return []
     return build_chart_specs(
-        outputs[-1],
-        site_labels=runtime["site_labels"],
-        metric_labels=runtime["metric_labels"],
+        analysis_output,
+        site_labels=runtime.site_labels,
+        metric_labels=runtime.metric_labels,
     )
 
 
@@ -141,13 +94,13 @@ def render_charts(charts: list[dict]) -> None:
             )
 
 
-def render_audit(runtime: dict[str, object]) -> None:
+def render_audit(runtime: ConversationRuntime) -> None:
     """Show all events for the most recent user request."""
 
     trace_id = st.session_state.get("last_trace_id")
     if trace_id is None:
         return
-    audit_sink = runtime["audit_sink"]
+    audit_sink = runtime.audit_sink
     events = audit_sink.for_trace(trace_id)
     with st.expander(f"Execution trace · {trace_id}", expanded=False):
         failed = sum(event.status.value == "failed" for event in events)
@@ -216,10 +169,11 @@ def main() -> None:
 
     if (
         "runtime" not in st.session_state
-        or st.session_state.runtime.get("version") != RUNTIME_VERSION
+        or st.session_state.get("runtime_version") != RUNTIME_VERSION
     ):
         with st.spinner("Preparing the local agent and mock data..."):
-            st.session_state.runtime = create_runtime()
+            st.session_state.runtime = create_runtime(model_settings)
+            st.session_state.runtime_version = RUNTIME_VERSION
         st.session_state.chat_messages = []
         st.session_state.last_trace_id = None
     runtime = st.session_state.runtime
@@ -230,17 +184,17 @@ def main() -> None:
         st.write("**Category:** 20081 · Antiques")
         st.write("**Sites:** Germany (77), UK (3)")
         st.write("**Dates:** 2026-08-02 through 2026-09-10")
-        st.write(f"**Provider:** `{runtime['provider']}`")
-        st.write(f"**Model:** `{runtime['model']}`")
-        if runtime["base_url"]:
-            st.write(f"**Endpoint:** `{runtime['base_url']}`")
+        st.write(f"**Provider:** `{runtime.model_settings.provider.value}`")
+        st.write(f"**Model:** `{runtime.model_settings.display_name}`")
+        if runtime.model_settings.base_url:
+            st.write(f"**Endpoint:** `{runtime.model_settings.base_url}`")
         observability = (
             "Langfuse + local JSONL"
-            if runtime["audit_sink"].telemetry_enabled
+            if runtime.audit_sink.telemetry_enabled
             else "Local JSONL"
         )
         st.write(f"**Observability:** {observability}")
-        st.caption(f"Session: {runtime['session_id']}")
+        st.caption(f"Session: {runtime.session_id}")
         if st.button("New conversation", width="stretch"):
             reset_conversation(runtime)
             st.rerun()
@@ -263,7 +217,7 @@ def main() -> None:
         with st.chat_message("assistant"), st.spinner("Analyzing mock data..."):
             charts = []
             try:
-                answer = runtime["analysis_session"].ask(question)
+                answer = runtime.analysis_session.ask(question)
                 response = answer_text(answer.content)
             except Exception as error:
                 if model_settings.provider is ModelProvider.MLX and type(error).__name__ == "OpenAIConnectionError":
@@ -279,13 +233,15 @@ def main() -> None:
                 st.error(response)
             else:
                 st.markdown(response)
-                trace_id = runtime["analysis_session"].last_trace_id
-                charts = charts_for_trace(runtime, trace_id)
+                charts = charts_for_analysis(
+                    runtime,
+                    runtime.analysis_session.last_analysis_output,
+                )
                 render_charts(charts)
         st.session_state.chat_messages.append(
             {"role": "assistant", "content": response, "charts": charts}
         )
-        st.session_state.last_trace_id = runtime["analysis_session"].last_trace_id
+        st.session_state.last_trace_id = runtime.analysis_session.last_trace_id
 
     render_audit(runtime)
 

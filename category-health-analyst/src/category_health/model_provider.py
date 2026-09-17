@@ -1,4 +1,4 @@
-"""Model-provider configuration for hosted OpenAI and local MLX inference."""
+"""Configure the hosted OpenAI or local MLX language-model provider."""
 
 from __future__ import annotations
 

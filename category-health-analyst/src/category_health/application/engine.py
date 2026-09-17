@@ -1,18 +1,18 @@
-"""The first deterministic Category Health Analyst agent."""
+"""Execute validated category-health queries against a repository."""
 
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel
 
-from category_health.agent.planner import ExecutionPlan, PlanOperation, build_plan
+from category_health.application.planner import ExecutionPlan, PlanOperation, build_plan
 from category_health.audit import AuditSink, AuditTrail
 from category_health.domain.models import CategorySiteMetrics, DateRange
 from category_health.domain.ports import MetricsRepository
 from category_health.domain.query import AnalyticsQuerySpec
 
 
-class QueryData(BaseModel):
+class QueryResultGroup(BaseModel):
     """Records returned for one site and one semantic period."""
 
     site_id: int
@@ -21,23 +21,25 @@ class QueryData(BaseModel):
     available_date_range: DateRange | None = None
 
 
-class AgentResult(BaseModel):
-    """Structured output of one deterministic agent run."""
+class AnalyticsResult(BaseModel):
+    """Structured output of one deterministic analytics execution."""
 
     trace_id: UUID
     query: AnalyticsQuerySpec
     plan: ExecutionPlan
-    data: tuple[QueryData, ...]
+    data: tuple[QueryResultGroup, ...]
 
 
-class AnalyticsAgent:
+class AnalyticsEngine:
     """Plan and execute validated analytics requests."""
 
     def __init__(self, repository: MetricsRepository, audit_sink: AuditSink) -> None:
         self._repository = repository
         self._audit_sink = audit_sink
 
-    def run(self, query: AnalyticsQuerySpec, audit: AuditTrail | None = None) -> AgentResult:
+    def run(
+        self, query: AnalyticsQuerySpec, audit: AuditTrail | None = None
+    ) -> AnalyticsResult:
         audit = audit or AuditTrail(self._audit_sink)
 
         with audit.step("validate_query", input_object=query) as step:
@@ -63,17 +65,22 @@ class AnalyticsAgent:
             )
             step.set_output_object(data)
 
-        result = AgentResult(trace_id=audit.trace_id, query=query, plan=plan, data=data)
+        result = AnalyticsResult(
+            trace_id=audit.trace_id,
+            query=query,
+            plan=plan,
+            data=data,
+        )
         return result
 
-    def _execute(self, plan: ExecutionPlan) -> list[QueryData]:
+    def _execute(self, plan: ExecutionPlan) -> list[QueryResultGroup]:
         if plan.operation == PlanOperation.SNAPSHOT:
             return [self._snapshot_for_site(plan, site_id) for site_id in plan.site_ids]
 
         if plan.operation in {PlanOperation.DAILY_TREND, PlanOperation.CHANGE_ANALYSIS}:
             assert plan.date_range is not None
             return [
-                QueryData(
+                QueryResultGroup(
                     site_id=site_id,
                     period="current",
                     records=tuple(
@@ -92,10 +99,10 @@ class AnalyticsAgent:
         assert plan.operation == PlanOperation.PERIOD_COMPARISON
         assert plan.date_range is not None
         assert plan.comparison_range is not None
-        result: list[QueryData] = []
+        result: list[QueryResultGroup] = []
         for site_id in plan.site_ids:
             result.append(
-                QueryData(
+                QueryResultGroup(
                     site_id=site_id,
                     period="comparison",
                     records=tuple(
@@ -109,7 +116,7 @@ class AnalyticsAgent:
                 )
             )
             result.append(
-                QueryData(
+                QueryResultGroup(
                     site_id=site_id,
                     period="current",
                     records=tuple(
@@ -124,11 +131,13 @@ class AnalyticsAgent:
             )
         return result
 
-    def _daily_or_snapshot_by_site(self, plan: ExecutionPlan) -> list[QueryData]:
+    def _daily_or_snapshot_by_site(
+        self, plan: ExecutionPlan
+    ) -> list[QueryResultGroup]:
         if plan.date_range is None:
             return [self._snapshot_for_site(plan, site_id) for site_id in plan.site_ids]
         return [
-            QueryData(
+            QueryResultGroup(
                 site_id=site_id,
                 period="current",
                 records=tuple(
@@ -141,13 +150,15 @@ class AnalyticsAgent:
             for site_id in plan.site_ids
         ]
 
-    def _snapshot_for_site(self, plan: ExecutionPlan, site_id: int) -> QueryData:
+    def _snapshot_for_site(
+        self, plan: ExecutionPlan, site_id: int
+    ) -> QueryResultGroup:
         if plan.date_range is not None:
             records = self._repository.latest_per_day(plan.category_id, site_id, plan.date_range)
             record = max(records, key=lambda row: row.observed_date) if records else None
         else:
             record = self._repository.latest_update(plan.category_id, site_id)
-        return QueryData(
+        return QueryResultGroup(
             site_id=site_id,
             period="snapshot",
             records=(record,) if record is not None else (),

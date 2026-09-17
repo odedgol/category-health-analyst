@@ -1,7 +1,5 @@
-"""Registered, validated tool boundaries for the analytics agent."""
+"""Validate and resolve model-produced arguments into analytical requests."""
 
-from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
@@ -12,13 +10,6 @@ from category_health.catalogs.catalogs import MetricCatalog, SiteCatalog
 from category_health.catalogs.categories import CategoryCatalog
 from category_health.domain.models import DateRange
 from category_health.domain.query import AnalyticsQuerySpec, QueryIntent
-
-
-class ToolCall(BaseModel):
-    """A tool name and the JSON-like arguments produced by a language model."""
-
-    name: str
-    arguments: dict[str, Any] = Field(default_factory=dict)
 
 
 class AnalyzeCategoryHealthInput(BaseModel):
@@ -83,20 +74,8 @@ class ToolResolutionError(ValueError):
         self.unresolved_fields = unresolved_fields
 
 
-@dataclass(frozen=True)
-class ResolvedToolCall:
-    """A validated tool call ready for the deterministic agent."""
-
-    tool_name: str
-    query: AnalyticsQuerySpec
-    audit: AuditTrail
-
-
-ToolHandler = Callable[[dict[str, Any], AuditTrail], AnalyticsQuerySpec]
-
-
-class ToolRegistry:
-    """Allow only registered tools and convert them into QuerySpecs."""
+class AnalysisRequestResolver:
+    """Convert untrusted model arguments into a canonical analytics query."""
 
     def __init__(
         self,
@@ -105,35 +84,30 @@ class ToolRegistry:
         metric_catalog: MetricCatalog,
         audit_sink: AuditSink,
     ) -> None:
-        self._handlers: dict[str, ToolHandler] = {
-            "analyze_category_health": self._analyze_category_health,
-        }
         self._category_catalog = category_catalog
         self._site_catalog = site_catalog
         self._metric_catalog = metric_catalog
         self._audit_sink = audit_sink
 
-    @property
-    def tool_names(self) -> tuple[str, ...]:
-        """Return the closed set of tools available to the language layer."""
-
-        return tuple(self._handlers)
-
-    def resolve(self, call: ToolCall, audit: AuditTrail | None = None) -> ResolvedToolCall:
-        """Validate a tool call and return a QuerySpec plus its audit trail."""
+    def resolve(
+        self,
+        arguments: dict[str, Any],
+        audit: AuditTrail | None = None,
+    ) -> AnalyticsQuerySpec:
+        """Validate and resolve one analysis request."""
 
         audit = audit or AuditTrail(self._audit_sink)
-        with audit.step("select_tool", input_object=call) as step:
-            handler = self._handlers.get(call.name)
-            if handler is None:
-                raise ToolResolutionError(f"Unknown tool: {call.name}", ("tool_name",))
-            step.set_output({"tool_name": call.name})
-            step.set_output_object(call)
+        tool_call = {
+            "name": "analyze_category_health",
+            "arguments": arguments,
+        }
+        with audit.step("select_tool", input_object=tool_call) as step:
+            step.set_output({"tool_name": "analyze_category_health"})
+            step.set_output_object(tool_call)
 
-        query = handler(call.arguments, audit)
-        return ResolvedToolCall(tool_name=call.name, query=query, audit=audit)
+        return self._resolve_analysis(arguments, audit)
 
-    def _analyze_category_health(
+    def _resolve_analysis(
         self, arguments: dict[str, Any], audit: AuditTrail
     ) -> AnalyticsQuerySpec:
         with audit.step("validate_tool_arguments", input_object=arguments) as step:

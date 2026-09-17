@@ -1,7 +1,7 @@
 from datetime import date
 
 import pytest
-from category_health.agent.planner import PlanOperation, build_plan
+from category_health.application.planner import PlanOperation, build_plan
 from category_health.domain.models import DateRange
 from category_health.domain.query import AnalyticsQuerySpec, QueryIntent
 

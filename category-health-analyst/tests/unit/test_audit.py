@@ -1,5 +1,10 @@
 import pytest
-from category_health.audit import AuditStatus, AuditTrail, InMemoryAuditSink
+from category_health.audit import (
+    AuditStatus,
+    AuditTrail,
+    InMemoryAuditSink,
+    current_audit,
+)
 from category_health.domain.query import AnalyticsQuerySpec, QueryIntent
 
 
@@ -30,6 +35,15 @@ def test_failed_step_records_error_and_reraises() -> None:
     assert events[-1].status == AuditStatus.FAILED
     assert events[-1].error_type == "ValueError"
     assert events[-1].error_message == "bad category"
+
+
+def test_audit_trail_is_current_only_inside_explicit_scope() -> None:
+    audit = AuditTrail(InMemoryAuditSink())
+
+    assert current_audit.get() is None
+    with audit.as_current():
+        assert current_audit.get() is audit
+    assert current_audit.get() is None
 
 
 def test_traces_are_isolated() -> None:

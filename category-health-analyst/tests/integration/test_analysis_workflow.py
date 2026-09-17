@@ -7,11 +7,12 @@ from types import SimpleNamespace
 
 import duckdb
 import pytest
-from category_health.agent.core import AnalyticsAgent
-from category_health.agent.deep_agent import build_analysis_tool
-from category_health.agent.output import expose_requested_metrics
+from category_health.application.engine import AnalyticsEngine
+from category_health.agent.deep_agent import create_analysis_tool
+from category_health.application.output import expose_requested_metrics
 from category_health.agent.session import AnalysisSession
-from category_health.agent.tools import AnalyzeCategoryHealthInput
+from category_health.application.requests import AnalyzeCategoryHealthInput
+from category_health.application.service import CategoryHealthService
 from category_health.audit import AuditEvent, InMemoryAuditSink, JsonlAuditSink, current_audit
 from category_health.catalogs.catalogs import (
     MetricCatalog,
@@ -73,7 +74,7 @@ def analyze(
         comparison_range=comparison,
         confidence=1,
     )
-    return expose_requested_metrics(AnalyticsAgent(repository, InMemoryAuditSink()).run(query))
+    return expose_requested_metrics(AnalyticsEngine(repository, InMemoryAuditSink()).run(query))
 
 
 def test_exact_trend_count_lmd_units_and_booleans(repository):
@@ -183,7 +184,7 @@ def test_mock_supports_thirty_day_queries(repository):
         date_range=DateRange(start=date(2026, 8, 12), end=date(2026, 9, 10)),
         confidence=1,
     )
-    response = expose_requested_metrics(AnalyticsAgent(repository, InMemoryAuditSink()).run(query))
+    response = expose_requested_metrics(AnalyticsEngine(repository, InMemoryAuditSink()).run(query))
     assert len(response.values) == 30 and len(response.comparisons) == 29
     assert response.status == "ok"
 
@@ -217,25 +218,28 @@ def test_invalid_requests_are_rejected(changes):
 
 
 def make_tool(repository, sink):
-    return build_analysis_tool(
-        repository,
-        CategoryCatalog(
+    service = CategoryHealthService(
+        repository=repository,
+        category_catalog=CategoryCatalog(
             (
                 CategoryDefinition(20081, "Antiques"),
                 CategoryDefinition(1, "Armor"),
                 CategoryDefinition(2, "Armor"),
             )
         ),
-        SiteCatalog((SiteDefinition(77, "Germany", "Germany", "DE", ()),)),
-        MetricCatalog(
+        site_catalog=SiteCatalog(
+            (SiteDefinition(77, "Germany", "Germany", "DE", ()),)
+        ),
+        metric_catalog=MetricCatalog(
             (
                 MetricDefinition(
                     "image_coverage_percentage", "Image coverage", "%", ("image coverage",)
                 ),
             )
         ),
-        sink,
+        audit_sink=sink,
     )
+    return create_analysis_tool(service, sink)
 
 
 def test_clarification_retry_history_and_persistent_audit(repository, tmp_path):
@@ -343,14 +347,20 @@ def test_real_framework_propagates_audit_through_tool_execution(monkeypatch, tmp
     repository = InMemoryMetricsRepository()
     seed_mock_data(repository)
     sink = JsonlAuditSink(tmp_path / "graph.jsonl")
-    graph = create_category_health_deep_agent(
-        model="openai:category-health-test",
+    service = CategoryHealthService(
         repository=repository,
         category_catalog=CategoryCatalog((CategoryDefinition(20081, "Antiques"),)),
-        site_catalog=SiteCatalog((SiteDefinition(77, "Germany", "Germany", "DE", ()),)),
+        site_catalog=SiteCatalog(
+            (SiteDefinition(77, "Germany", "Germany", "DE", ()),)
+        ),
         metric_catalog=MetricCatalog(
             (MetricDefinition("image_coverage_percentage", "Image coverage", "%", ()),)
         ),
+        audit_sink=sink,
+    )
+    graph = create_category_health_deep_agent(
+        model="openai:category-health-test",
+        service=service,
         audit_sink=sink,
     )
     session = AnalysisSession(graph, sink)
@@ -360,6 +370,7 @@ def test_real_framework_propagates_audit_through_tool_execution(monkeypatch, tmp
     payload = json.loads(tool_message.content)
     assert payload["trace_id"] == str(session.last_trace_id)
     assert Decimal(payload["comparisons"][0]["delta"]) == -8
+    assert session.last_analysis_output == payload
     assert {e.trace_id for e in sink.events} == {session.last_trace_id}
 
 

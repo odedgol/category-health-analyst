@@ -1,7 +1,11 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from category_health.agent.deep_agent import build_analysis_tool, build_metric_catalog_tool
+from category_health.agent.deep_agent import (
+    create_analysis_tool,
+    create_metric_catalog_tool,
+)
+from category_health.application.service import CategoryHealthService
 from category_health.audit import InMemoryAuditSink
 from category_health.catalogs.catalogs import (
     MetricCatalog,
@@ -32,7 +36,8 @@ def test_deep_agent_domain_tool_runs_without_an_external_model() -> None:
             misaligned_aspects_percentage=Decimal("10"),
         )
     )
-    tool = build_analysis_tool(
+    sink = InMemoryAuditSink()
+    service = CategoryHealthService(
         repository=repository,
         category_catalog=CategoryCatalog((CategoryDefinition(100, "Armor"),)),
         site_catalog=SiteCatalog((SiteDefinition(77, "Germany", "Germany", "DE", ()),)),
@@ -46,8 +51,9 @@ def test_deep_agent_domain_tool_runs_without_an_external_model() -> None:
                 ),
             )
         ),
-        audit_sink=InMemoryAuditSink(),
+        audit_sink=sink,
     )
+    tool = create_analysis_tool(service, sink)
 
     response = tool(
         intent="trend",
@@ -90,7 +96,17 @@ def test_metric_catalog_tool_returns_every_supported_option_and_audits_it() -> N
         )
     )
 
-    response = build_metric_catalog_tool(catalog, sink)()
+    service = CategoryHealthService(
+        repository=InMemoryMetricsRepository(),
+        category_catalog=CategoryCatalog((CategoryDefinition(100, "Armor"),)),
+        site_catalog=SiteCatalog(
+            (SiteDefinition(77, "Germany", "Germany", "DE", ()),)
+        ),
+        metric_catalog=catalog,
+        audit_sink=sink,
+    )
+
+    response = create_metric_catalog_tool(service, sink)()
 
     assert response["status"] == "ok"
     assert [metric["metric_id"] for metric in response["metrics"]] == [

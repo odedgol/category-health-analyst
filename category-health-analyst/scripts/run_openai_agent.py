@@ -5,16 +5,9 @@ import json
 import os
 from pathlib import Path
 
-import duckdb
-from category_health.agent.deep_agent import create_category_health_deep_agent
-from category_health.agent.session import AnalysisSession
-from category_health.catalogs.catalogs import load_metric_catalog, load_site_catalog
-from category_health.catalogs.categories import load_category_catalog
+from category_health.bootstrap import create_demo_conversation_runtime
 from category_health.config import load_local_environment
-from category_health.models import build_agent_model, load_model_settings
-from category_health.observability import create_audit_sink
-from category_health.repositories.duckdb import DuckDbMetricsRepository
-from category_health.repositories.mock_data import seed_mock_data
+from category_health.model_provider import load_model_settings
 
 
 def main() -> None:
@@ -30,20 +23,14 @@ def main() -> None:
     model_settings = load_model_settings(provider=args.provider, model=args.model)
     if error := model_settings.configuration_error():
         raise SystemExit(error)
-    sink = create_audit_sink(root / "audit" / "events.jsonl")
-    connection = duckdb.connect(":memory:")
-    repository = DuckDbMetricsRepository(connection)
-    seed_mock_data(repository)
-    agent = create_category_health_deep_agent(
-        model=build_agent_model(model_settings),
-        harness_profile_key=model_settings.harness_profile_key,
-        repository=repository,
-        category_catalog=load_category_catalog(root / "data/categories_source.txt"),
-        site_catalog=load_site_catalog(root / "data/sites.yaml"),
-        metric_catalog=load_metric_catalog(root / "data/metrics.yaml"),
-        audit_sink=sink,
+    runtime = create_demo_conversation_runtime(
+        root,
+        audit_path=root / "audit" / "events.jsonl",
+        source="agent",
+        model_settings=model_settings,
     )
-    session = AnalysisSession(agent, sink)
+    sink = runtime.audit_sink
+    session = runtime.analysis_session
     print("MOCK DATA: category 20081; Germany/UK; 2026-08-02 through 2026-09-10.")
     print(f"MODEL: {model_settings.display_name}")
     prompt = os.environ.get(
@@ -84,8 +71,7 @@ def main() -> None:
             if not args.chat:
                 break
     finally:
-        sink.flush()
-        connection.close()
+        runtime.close()
 
 
 if __name__ == "__main__":

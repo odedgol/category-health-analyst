@@ -3,14 +3,14 @@ from decimal import Decimal
 from uuid import uuid4
 
 import pytest
-from category_health.agent.core import AgentResult, QueryData
-from category_health.agent.output import expose_requested_metrics
-from category_health.agent.planner import ExecutionPlan, PlanOperation
+from category_health.application.engine import AnalyticsResult, QueryResultGroup
+from category_health.application.output import expose_requested_metrics
+from category_health.application.planner import ExecutionPlan, PlanOperation
 from category_health.domain.models import CategorySiteMetrics, DateRange
 from category_health.domain.query import AnalyticsQuerySpec, QueryIntent
 
 
-def _result(metric_ids: tuple[str, ...]) -> AgentResult:
+def _result(metric_ids: tuple[str, ...]) -> AnalyticsResult:
     record = CategorySiteMetrics(
         category_id=100,
         site_id=77,
@@ -40,11 +40,13 @@ def _result(metric_ids: tuple[str, ...]) -> AgentResult:
         metric_ids=metric_ids,
         date_range=query.date_range,
     )
-    return AgentResult(
+    return AnalyticsResult(
         trace_id=uuid4(),
         query=query,
         plan=plan,
-        data=(QueryData(site_id=77, period="current", records=(record,)),),
+        data=(
+            QueryResultGroup(site_id=77, period="current", records=(record,)),
+        ),
     )
 
 

@@ -8,31 +8,22 @@ from pathlib import Path
 from time import perf_counter
 from uuid import uuid4
 
-import duckdb
 import yaml
-from category_health.agent.deep_agent import (
-    build_analysis_tool,
-    build_metric_catalog_tool,
-    create_category_health_deep_agent,
-)
+from category_health.agent.deep_agent import create_category_health_deep_agent
 from category_health.agent.session import AnalysisSession
-from category_health.catalogs.catalogs import load_metric_catalog, load_site_catalog
-from category_health.catalogs.categories import load_category_catalog
+from category_health.bootstrap import create_demo_runtime
 from category_health.config import load_local_environment
 from category_health.evaluation import (
     build_provider_comparison,
     review_answer_wording,
     score_turn,
 )
-from category_health.models import (
+from category_health.model_provider import (
     ModelSettings,
     build_agent_model,
     load_model_settings,
     local_server_error,
 )
-from category_health.observability import create_audit_sink
-from category_health.repositories.duckdb import DuckDbMetricsRepository
-from category_health.repositories.mock_data import seed_mock_data
 
 
 def _message_usage(messages: list) -> dict[str, int]:
@@ -59,27 +50,23 @@ def run_suite(
     """Run one isolated provider against the selected cases."""
 
     live = settings is not None
-    sink = create_audit_sink(run_dir / "events.jsonl")
-    connection = duckdb.connect(":memory:")
-    repository = DuckDbMetricsRepository(connection)
-    seed_mock_data(repository)
-    dependencies = dict(
-        repository=repository,
-        audit_sink=sink,
-        category_catalog=load_category_catalog(root / "data/categories_source.txt"),
-        site_catalog=load_site_catalog(root / "data/sites.yaml"),
-        metric_catalog=load_metric_catalog(root / "data/metrics.yaml"),
+    runtime = create_demo_runtime(
+        root,
+        audit_path=run_dir / "events.jsonl",
+        audit_environment=None if live else {},
     )
-    tool = build_analysis_tool(**dependencies)
-    metric_catalog_tool = build_metric_catalog_tool(
-        dependencies["metric_catalog"], dependencies["audit_sink"]
-    )
+    sink = runtime.audit_sink
+
+    def analyze(**arguments):
+        return runtime.service.analyze(arguments)
+
     graph = None
     if live:
         graph = create_category_health_deep_agent(
             model=build_agent_model(settings),
             harness_profile_key=settings.harness_profile_key,
-            **dependencies,
+            service=runtime.service,
+            audit_sink=sink,
         )
     report = {
         "mode": "live" if live else "offline_fixture_check",
@@ -131,13 +118,13 @@ def run_suite(
                     elif turn.get("clarification"):
                         item.update(status="skipped", reason="Requires language interpretation.")
                     elif turn.get("catalog"):
-                        result = metric_catalog_tool()
+                        result = runtime.service.list_metrics()
                         item["trace_id"] = result["trace_id"]
                     else:
                         query = turn["query"]
                         scope = query["date_range"] or {}
                         comparison = query["comparison_range"] or {}
-                        result = tool(
+                        result = analyze(
                             intent=query["intent"],
                             category=str(query["category_id"]),
                             sites=[str(site) for site in query["site_ids"]],
@@ -170,8 +157,7 @@ def run_suite(
                     break
     finally:
         save()
-        sink.flush()
-        connection.close()
+        runtime.close()
     return report
 
 

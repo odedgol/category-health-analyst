@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import duckdb
-from category_health.agent.core import AnalyticsAgent
+from category_health.application.engine import AnalyticsEngine
 from category_health.audit import InMemoryAuditSink
 from category_health.domain.models import CategorySiteMetrics, DateRange
 from category_health.domain.query import AnalyticsQuerySpec, QueryIntent
@@ -32,7 +32,7 @@ def test_agent_plans_executes_and_audits_a_trend_query() -> None:
     repository.add_update(_update(10, 8, "70"))
     repository.add_update(_update(10, 14, "64"))
     sink = InMemoryAuditSink()
-    agent = AnalyticsAgent(repository, sink)
+    agent = AnalyticsEngine(repository, sink)
 
     result = agent.run(
         AnalyticsQuerySpec(
