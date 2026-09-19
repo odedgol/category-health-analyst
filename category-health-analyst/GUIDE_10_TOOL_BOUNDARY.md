@@ -25,7 +25,7 @@ Tool arguments are validated
 Catalogs resolve names to IDs
      |
      v
-Deterministic planner builds the operation
+CategoryHealthAnalyzer selects the explicit intent branch
      |
      v
 Repository retrieves data
@@ -173,9 +173,9 @@ The answer formatting was incorrect.
 The project uses two closed Deep Agent tools and an explicit deterministic resolver:
 
 1. `create_analysis_tool()` exposes `analyze_category_health`;
-2. `AnalyzeCategoryHealthInput` validates raw model arguments;
+2. `AnalysisRequest` validates raw model arguments;
 3. `AnalysisRequestResolver.resolve()` resolves catalogs and creates an
-   `AnalyticsQuerySpec`;
+   `AnalysisQuery`;
 4. `CategoryHealthService.analyze()` executes the deterministic pipeline;
 5. `create_metric_catalog_tool()` exposes metric discovery separately;
 6. the harness profile removes filesystem, shell and subagent tools.
@@ -193,7 +193,7 @@ This guide is complete when:
 - its arguments are validated;
 - category, site, and metric names resolve through catalogs;
 - ambiguous names produce a clarification requirement;
-- a validated tool call becomes an `AnalyticsQuerySpec`;
+- a validated tool call becomes an `AnalysisQuery`;
 - the deterministic application service executes it;
 - the entire path appears in the audit trail.
 

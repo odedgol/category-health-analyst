@@ -72,7 +72,7 @@ class CategoryHealthMcpRuntime:
                 },
                 input_object=request,
             ) as step:
-                result = self.application.service.analyze(arguments, audit=audit)
+                result = self.application.service.analyze_arguments(arguments, audit=audit)
                 summary = self._analysis_summary(result, audit)
                 step.set_output(
                     {

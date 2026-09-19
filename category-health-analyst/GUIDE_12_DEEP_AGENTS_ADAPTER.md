@@ -44,7 +44,7 @@ The single analysis tool, `analyze_category_health`:
 
 1. validates the model-generated arguments;
 2. resolves catalogs;
-3. creates an `AnalyticsQuerySpec`;
+3. creates an `AnalysisQuery`;
 4. runs the deterministic agent;
 5. projects the complete result into the requested output;
 6. returns JSON-safe data.

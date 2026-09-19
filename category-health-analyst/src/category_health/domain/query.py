@@ -2,7 +2,7 @@
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from category_health.domain.models import DateRange
 
@@ -15,20 +15,25 @@ class QueryIntent(StrEnum):
     EXPLAIN_CHANGE = "explain_change"
 
 
-class AnalyticsQuerySpec(BaseModel):
+class AnalysisQuery(BaseModel):
     """The validated intermediate representation of one analytical request."""
 
+    model_config = ConfigDict(extra="forbid")
     intent: QueryIntent
     metric_ids: tuple[str, ...] = Field(min_length=1)
-    category_id: int | None = Field(default=None, ge=0)
-    site_ids: tuple[int, ...] = Field(default=(), min_length=1)
+    category_id: int = Field(ge=0)
+    site_ids: tuple[int, ...] = Field(min_length=1)
     date_range: DateRange | None = None
     comparison_range: DateRange | None = None
-    unresolved_fields: tuple[str, ...] = ()
-    confidence: float = Field(ge=0, le=1)
 
     @model_validator(mode="after")
-    def validate_intent_requirements(self) -> "AnalyticsQuerySpec":
+    def validate_intent_requirements(self) -> "AnalysisQuery":
+        if (
+            self.intent in {QueryIntent.TREND, QueryIntent.EXPLAIN_CHANGE}
+            and self.date_range is None
+        ):
+            raise ValueError(f"{self.intent.value} requires date_range")
+
         if (
             self.intent == QueryIntent.COMPARE_PERIODS
             and (self.date_range is None or self.comparison_range is None)
@@ -39,9 +44,3 @@ class AnalyticsQuerySpec(BaseModel):
             raise ValueError("compare_sites requires exactly two site IDs")
 
         return self
-
-    @property
-    def is_executable(self) -> bool:
-        """Whether the spec has enough information to reach the planner."""
-
-        return self.category_id is not None and bool(self.site_ids) and not self.unresolved_fields

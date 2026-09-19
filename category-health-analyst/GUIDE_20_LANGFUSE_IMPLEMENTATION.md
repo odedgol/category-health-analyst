@@ -89,8 +89,8 @@ export CATEGORY_HEALTH_TELEMETRY_CAPTURE_OBJECTS=true
 ```
 
 Keep it disabled until production redaction and data-retention policy are approved.
-For example, `execute_plan` exports `record_count` rather than every database row, and
-`calculate_and_project` exports status/value/comparison/warning counts. The complete
+For example, each `execute_<intent>` span exports status/value/comparison/warning
+counts, as does `calculate_and_project`. The complete
 objects remain available in the append-only local audit.
 This switch controls our custom business-audit objects. The official LangChain
 callback separately captures model/tool prompts and responses so Langfuse can provide

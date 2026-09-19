@@ -11,15 +11,10 @@ The final answer is useful to a user. The audit trace is useful to the developer
 For a successful request, the trace contains pairs of events for each stage:
 
 ```text
-select_tool
-validate_tool_arguments
-resolve_category
-resolve_sites
-resolve_metrics
-build_query
-validate_query
-plan_query
-execute_plan
+resolve_request
+execute_snapshot / execute_trend / execute_compare_periods /
+execute_compare_sites / execute_explain_change
+calculate_and_project
 ```
 
 Each pair contains a `started` event and a `succeeded` event. If a step fails, the second event is marked `failed` and includes the error type and message.
@@ -31,7 +26,7 @@ The trace lets us answer:
 - Which tool did the model select?
 - Which category, site, and metric IDs were resolved?
 - Which QuerySpec was created?
-- Which operation did the planner select?
+- Which explicit analysis branch ran?
 - Which dates and LMD values were retrieved?
 - Which values reached the output layer?
 

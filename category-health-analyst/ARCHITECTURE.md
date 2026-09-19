@@ -41,7 +41,7 @@ The main problems were:
 
 The parts that were already strong and remain unchanged are the repository port,
 the DuckDB and in-memory adapters, immutable domain records, catalog resolution,
-the explicit query specification, deterministic planner, LMD selection, metric
+the explicit query specification, deterministic analysis, LMD selection, metric
 semantics, warnings and comparison direction.
 
 ## 2. After the refactor
@@ -63,13 +63,13 @@ semantics, warnings and comparison direction.
                             v
 ┌──────────────────────────────────────────────────────────────┐
 │ Application                                                  │
-│ CategoryHealthService                                        │
-│ request resolution -> engine -> planner -> output projection │
+│ CategoryHealthService -> CategoryHealthAnalyzer              │
+│ request resolution -> one explicit intent branch -> response │
 └───────────────────────────┬──────────────────────────────────┘
                             v
 ┌──────────────────────────────────────────────────────────────┐
 │ Domain                                                       │
-│ models, query contract, calculations, repository port        │
+│ models, query contract, repository port                      │
 └───────────────────────────┬──────────────────────────────────┘
                             v
 ┌──────────────────────────────────────────────────────────────┐
@@ -118,13 +118,11 @@ this project owns validation, resolution, retrieval and calculation.
 | `agent/deep_agent.py` | Expose application use cases as two Deep Agent tools | Framework-specific orchestration stays at the edge |
 | `application/service.py` | Provide the deterministic application entry point | One place answers “where does an analysis request enter?” |
 | `application/requests.py` | Validate arguments and resolve catalog references | Converts untrusted model output to a canonical query |
-| `application/engine.py` | Validate, plan and execute a canonical query | Orchestrates deterministic analytics |
-| `application/planner.py` | Map intent and scope to an `ExecutionPlan` | Planning is deterministic application policy |
-| `application/output.py` | Expose requested values, comparisons and warnings | Keeps projection separate from retrieval |
+| `application/analysis.py` | Execute the five explicit analysis branches | Keeps deterministic behavior visible in one place |
+| `application/output.py` | Define response models and atomic delta calculation | Keeps output contracts separate from orchestration |
 | `domain/models.py` | Define aggregate records and date ranges | These are business data structures |
-| `domain/query.py` | Define intents and `AnalyticsQuerySpec` | Stable boundary after language interpretation |
+| `domain/query.py` | Define intents and `AnalysisQuery` | Stable boundary after language interpretation |
 | `domain/ports.py` | Define `MetricsRepository` | The application depends on a port, not a database |
-| `domain/calculations.py` | Hold pure domain calculations | No framework or persistence dependencies |
 | `repositories/duckdb.py` | Implement the repository port with DuckDB | Concrete persistence adapter |
 | `repositories/in_memory.py` | Implement the repository port for tests | Fast deterministic adapter |
 | `repositories/mock_data.py` | Seed reproducible aggregate observations | Local/demo infrastructure only |
@@ -168,11 +166,11 @@ Why better: each file stays at one conceptual level.
 
 ### Honest naming
 
-Before: `AnalyticsAgent`, `AgentResult`, `QueryData` and `models.py` obscured whether
-code was deterministic, domain-oriented or model-provider configuration.
+Before: `AnalyticsAgent`, `AnalyticsEngine`, `ExecutionPlan` and `QueryData`
+obscured a flow that only has five known operations.
 
-After: `AnalyticsEngine`, `AnalyticsResult`, `QueryResultGroup` and
-`model_provider.py` state their responsibilities directly.
+After: `CategoryHealthAnalyzer.analyze()` visibly routes to `_snapshot()`,
+`_trend()`, `_compare_periods()`, `_compare_sites()` or `_explain_change()`.
 
 Why better: a reader can predict behavior from names.
 
@@ -210,19 +208,19 @@ What is the image coverage for Antiques in Germany?
 | 3 | `agent/deep_agent.py` | Deep Agent | Natural language | Tool selection and arguments | Interpret language only |
 | 4 | `agent/deep_agent.py` | `analyze_category_health()` | `snapshot`, `Antiques`, `Germany`, `image coverage` | JSON-safe response | Adapt tool call to service API |
 | 5 | `application/service.py` | `CategoryHealthService.analyze()` | Untrusted arguments | Structured response | Orchestrate one deterministic use case |
-| 6 | `application/requests.py` | `AnalysisRequestResolver.resolve()` | Tool arguments | `AnalyticsQuerySpec` | Validate and canonicalize references |
+| 6 | `application/requests.py` | `AnalysisRequestResolver.resolve()` | `AnalysisRequest` | `AnalysisQuery` | Validate and canonicalize references |
 | 7 | `catalogs/categories.py` | `CategoryCatalog.resolve()` | `Antiques` | Category ID `20081` | Resolve category identity |
 | 8 | `catalogs/catalogs.py` | `SiteCatalog.resolve()` | `Germany` | Site ID `77` | Resolve site identity |
 | 9 | `catalogs/catalogs.py` | `MetricCatalog.resolve()` | `image coverage` | `image_coverage_percentage` | Resolve metric identity |
-| 10 | `application/engine.py` | `AnalyticsEngine.run()` | Executable query | `AnalyticsResult` | Validate, plan and execute |
-| 11 | `application/planner.py` | `build_plan()` | Query spec | Snapshot plan | Choose a closed operation |
+| 10 | `application/analysis.py` | `CategoryHealthAnalyzer.analyze()` | `AnalysisQuery` | Selected branch | Route explicitly by intent |
+| 11 | `application/analysis.py` | `_snapshot()` | Resolved IDs and range | `AnalysisResponse` | Retrieve and expose the latest requested values |
 | 12 | `repositories/duckdb.py` | `latest_update()` | Category `20081`, site `77` | Latest aggregate row | Read through repository semantics |
-| 13 | `application/output.py` | `expose_requested_metrics()` | Complete result | Requested values and warnings | Project and calculate deterministically |
+| 13 | `application/output.py` | `compare_observations()` | Two complete observations | Typed delta | Apply one atomic comparison rule |
 | 14 | `agent/deep_agent.py` | Deep Agent | Structured tool result | Natural-language answer | Present without recalculating |
 | 15 | `agent/session.py` | `AnalysisSession.ask()` | Agent messages | History and structured output | Retain follow-up and chart data |
 | 16 | `ui/app.py` | `render_charts()` | Chart specs | Streamlit chart | Present output visually |
 
-For trend and comparison requests, stages 10–13 also select daily records, apply
+For trend and comparison requests, the selected analysis branch also reads daily records, applies
 latest-LMD semantics, pair comparable observations and calculate deltas. The LLM
 receives those deltas; it never performs the subtraction.
 
@@ -249,7 +247,7 @@ Baseline before refactoring:
 After refactoring and added boundary tests:
 
 ```text
-119 passed
+117 passed
 ```
 
 New tests cover the application service, composition root and explicit audit
@@ -273,8 +271,8 @@ The system separates interpretation from truth. The LLM understands phrasing,
 chooses between discovery and analysis, extracts scope and presents the response.
 It cannot query arbitrary SQL or calculate deltas. Its arguments enter
 `CategoryHealthService`, where Pydantic validation and static catalogs convert
-names into canonical IDs. `AnalyticsQuerySpec` is the stable intermediate form.
-The planner maps it to a small closed operation set, and `AnalyticsEngine` executes
+names into canonical IDs. `AnalysisQuery` is the stable intermediate form.
+`CategoryHealthAnalyzer.analyze()` maps it directly to one of five explicit methods and executes
 through `MetricsRepository`. The DuckDB adapter applies latest-LMD selection. The
 output projector exposes only requested fields and computes comparisons, warnings
 and no-data behavior deterministically.

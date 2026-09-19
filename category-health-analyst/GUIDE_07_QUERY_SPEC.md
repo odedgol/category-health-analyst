@@ -11,7 +11,7 @@ We now have:
 
 The next problem is representing a user request in a stable, validated form.
 
-The answer is `AnalyticsQuerySpec`.
+The answer is `AnalysisQuery`.
 
 ## Why we need an intermediate representation
 
@@ -37,9 +37,9 @@ This creates a boundary:
 ```text
 Natural language
        ↓
-AnalyticsQuerySpec
+AnalysisQuery
        ↓
-Planner and repository
+CategoryHealthAnalyzer and repository
 ```
 
 The LLM, when introduced later, will help create the first object. It will not control the repository directly.
@@ -112,4 +112,4 @@ Later, we can store field-level confidence. For now, the query is executable onl
 
 ## What we will build next
 
-The next guide will build deterministic reference resolution: category names, site mentions, and metric phrases will be converted into the IDs used by `AnalyticsQuerySpec`.
+The next guide will build deterministic reference resolution: category names, site mentions, and metric phrases will be converted into the IDs used by `AnalysisQuery`.

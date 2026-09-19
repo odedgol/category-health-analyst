@@ -43,28 +43,26 @@ returns its observation and explains why no delta can be calculated.
 | Framework graph | `invoke(...)` | Message history and tool schema | Runs model/tool iterations, returning messages |
 | Nested adapter function | `list_available_metrics()` | No arguments | Calls `CategoryHealthService.list_metrics()` |
 | Nested adapter function | `analyze_category_health(...)` | Model-selected scope and intent | Calls `CategoryHealthService.analyze()` with the current trace |
-| CategoryHealthService | `analyze(arguments, audit)` | Untrusted tool arguments | Coordinates resolution, execution and output projection |
-| AnalysisRequestResolver | `resolve(arguments, audit)` | Tool arguments | Validates, resolves catalogs and constructs `AnalyticsQuerySpec` |
-| AnalyzeCategoryHealthInput | `model_validate(...)`, inherited from Pydantic | Raw arguments | Parses the schema and calls `validate_scope()` |
-| AnalyzeCategoryHealthInput | `validate_scope()` | Parsed fields | Rejects partial/reversed dates, excessive ranges and invalid combinations |
+| CategoryHealthService | `analyze(request, audit)` | Validated `AnalysisRequest` | Coordinates resolution and analysis |
+| AnalysisRequestResolver | `resolve(request, audit)` | `AnalysisRequest` | Resolves catalogs and constructs `AnalysisQuery` |
+| AnalysisRequest | `model_validate(...)`, inherited from Pydantic | Raw arguments | Parses the schema and calls `validate_scope()` |
+| AnalysisRequest | `validate_scope()` | Parsed fields | Rejects partial/reversed dates, excessive ranges and invalid combinations |
 | CategoryCatalog | `resolve()` / `candidates_by_name()` | Category reference | Returns a unique category or supplies ambiguity candidates |
 | SiteCatalog / MetricCatalog | `resolve()` | Human reference | Resolves static aliases to stable IDs |
-| AnalyzeCategoryHealthInput | `date_range()` / `comparison_range()` | Validated dates | Constructs DateRange objects |
-| AnalyticsQuerySpec | Pydantic constructor | Resolved IDs and intent | Validates query requirements, including two distinct comparison sites |
-| AnalyticsEngine | `run(query, audit)` | Query spec and same audit | Validates, builds a plan, retrieves data and returns `AnalyticsResult` |
-| Planner module (no class) | `build_plan(query)` | QuerySpec | Returns a deterministic ExecutionPlan |
-| AnalyticsEngine | `_execute(plan)` | ExecutionPlan | Calls repository for selected sites and ranges |
+| AnalysisRequest | `date_range()` / `comparison_range()` | Validated dates | Constructs DateRange objects |
+| AnalysisQuery | Pydantic constructor | Resolved IDs and intent | Validates requirements, including two comparison sites and required ranges |
+| CategoryHealthAnalyzer | `analyze(query, audit)` | `AnalysisQuery` | Selects one of five explicit analysis methods |
+| CategoryHealthAnalyzer | `_snapshot()` / `_trend()` / `_compare_periods()` / `_compare_sites()` / `_explain_change()` | Resolved query | Retrieves data and returns `AnalysisResponse` |
 | DuckDbMetricsRepository | `latest_per_day()` | Category, site and dates | Returns all columns using highest LMD per day |
 | DuckDbMetricsRepository | `available_date_range()` | Category and site | Returns actual minimum and maximum observed dates, independent of the requested range |
 | DuckDbMetricsRepository | `_to_model()` | DB tuple | Returns CategorySiteMetrics with UTC LMD |
-| Output module | `expose_requested_metrics(result)` | Complete `AnalyticsResult` | Selects requested values, detects missing data and chooses comparison pairs |
 | Output module (no class) | `compare_observations(...)` | Two source rows, metric and method | Returns one typed deterministic comparison |
 | Nested adapter function | `analyze_category_health(...)` resumes | AnalysisResponse | Audits complete calculation output and returns JSON to the model |
 | AnalysisSession | `ask(...)` resumes | Framework result messages | Audits returned messages and final answer; retains history for the next question |
 | CLI module | `main()` resumes | Answer and trace | Prints readable text, trace ID, errors and audited objects |
 
-Calculation and projection live in `application/output.py`. The output path uses
-`compare_observations()` and receives complete rows from `AnalyticsEngine`.
+Analysis orchestration lives in `application/analysis.py`. Atomic delta calculation
+and response models live in `application/output.py`.
 
 ## Questions and clarification
 
@@ -87,8 +85,9 @@ errors propagate and the request is marked failed; they are not mislabeled as am
 `AnalysisSession.ask()` installs a request-scoped AuditTrail using a ContextVar.
 Tool retries within that invocation reuse it; each next user turn gets a new trace.
 `AuditTrail.step()` records started/succeeded/failed events, input/output objects,
-duration and errors. `calculate_and_project` captures both source records and the
-computed response. `model_messages` and `final_answer` capture the returned conversation.
+duration and errors. `execute_<intent>` identifies the selected branch, while
+`calculate_and_project` captures the computed response. `model_messages` and
+`final_answer` capture the returned conversation.
 
 `JsonlAuditSink.record()` appends one JSON event per line to `audit/events.jsonl`.
 The file survives process exit and is ignored by Git. It contains questions and

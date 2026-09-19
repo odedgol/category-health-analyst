@@ -32,7 +32,7 @@ extract_query       succeeded   42 ms
 resolve_category    succeeded   3 ms
 resolve_site        succeeded   1 ms
 validate_query      succeeded   2 ms
-plan_query          succeeded   1 ms
+execute_trend       succeeded   1 ms
 execute_query       succeeded   8 ms
 compose_answer      succeeded   4 ms
 ```

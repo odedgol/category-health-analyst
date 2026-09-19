@@ -12,7 +12,7 @@ _UNSUPPORTED_WORDING = {
 }
 
 
-def review_answer_wording(answer: str) -> list[str]:
+def find_unsupported_answer_claims(answer: str) -> list[str]:
     """Catch known unsupported claims that structured tool scoring cannot see."""
 
     return [
@@ -22,11 +22,11 @@ def review_answer_wording(answer: str) -> list[str]:
     ]
 
 
-def _turn_key(turn: dict) -> tuple[str, int]:
+def _scenario_turn_id(turn: dict) -> tuple[str, int]:
     return turn["case"], turn["turn"]
 
 
-def _report_labels(reports: list[dict]) -> list[str]:
+def _comparison_labels(reports: list[dict]) -> list[str]:
     """Use provider names when unique and model names for same-provider A/B tests."""
 
     providers = [report["provider"] for report in reports]
@@ -43,15 +43,25 @@ def build_provider_comparison(reports: list[dict]) -> dict:
 
     if len(reports) != 2:
         raise ValueError("Exactly two reports are required for an A/B comparison.")
-    labels = _report_labels(reports)
+    labels = _comparison_labels(reports)
     arms = dict(zip(labels, reports, strict=True))
-    all_keys = sorted({_turn_key(turn) for report in reports for turn in report["turns"]})
+    all_keys = sorted(
+        {
+            _scenario_turn_id(turn)
+            for report in reports
+            for turn in report["turns"]
+        }
+    )
     turns = []
     for case, turn_number in all_keys:
         row = {"case": case, "turn": turn_number, "providers": {}}
         for label, report in arms.items():
             result = next(
-                (item for item in report["turns"] if _turn_key(item) == (case, turn_number)),
+                (
+                    item
+                    for item in report["turns"]
+                    if _scenario_turn_id(item) == (case, turn_number)
+                ),
                 None,
             )
             row["providers"][label] = (
@@ -121,7 +131,7 @@ def build_provider_comparison(reports: list[dict]) -> dict:
     return comparison
 
 
-def same_value(actual, expected):
+def values_are_equivalent(actual, expected) -> bool:
     """Numeric serialization may differ; booleans and null are never numbers."""
     if isinstance(expected, bool) or expected is None:
         return actual is expected
@@ -133,45 +143,104 @@ def same_value(actual, expected):
         return actual == expected
 
 
-def score_turn(expectation, events):
-    """Grade all successful calls, not just the last corrected call."""
-    completed = [e for e in events if e.status.value == "succeeded"]
-    queries = [e.output_object for e in completed if e.step == "build_query"]
-    outputs = [e.output_object for e in completed if e.step == "calculate_and_project"]
-    clarifications = [e for e in completed if e.step == "clarification"]
-    catalog_outputs = [e.output_object for e in completed if e.step == "list_available_metrics"]
-    failures = []
+def evaluate_turn_from_audit(expectation: dict, events: list) -> dict:
+    """Select the expected turn type and evaluate its audit evidence."""
+    successful_events = [event for event in events if event.status.value == "succeeded"]
+    resolved_queries = [
+        event.output_object
+        for event in successful_events
+        if event.step == "resolve_request"
+    ]
+    analysis_results = [
+        event.output_object
+        for event in successful_events
+        if event.step == "calculate_and_project"
+    ]
+    clarification_results = [
+        event.output_object
+        for event in successful_events
+        if event.step == "clarification"
+    ]
+    metric_catalogs = [
+        event.output_object
+        for event in successful_events
+        if event.step == "list_available_metrics"
+    ]
     if catalog_expectation := expectation.get("catalog"):
-        if queries or outputs:
-            failures.append("Executed an analysis when metric discovery was requested.")
-        if not catalog_outputs:
-            failures.append("No audited metric catalog result was recorded.")
-        for output in catalog_outputs:
-            actual_ids = [metric["metric_id"] for metric in output["metrics"]]
-            expected_ids = catalog_expectation["metric_ids"]
-            if actual_ids != expected_ids:
-                failures.append(
-                    f"Metric catalog mismatch: {actual_ids!r} != {expected_ids!r}"
-                )
-        return {
-            "status": "fail" if failures else "pass",
-            "failures": failures,
-            "answer_review": "Catalog selection and completeness verified from audit.",
-        }
+        return _evaluate_metric_catalog_request(
+            catalog_expectation,
+            metric_catalogs,
+            resolved_queries,
+            analysis_results,
+        )
     if expectation.get("clarification"):
-        if queries or outputs:
-            failures.append("Executed an analysis when clarification was required.")
-        if not clarifications:
-            failures.append("No audited clarification was recorded.")
-        return {
-            "status": "fail" if failures else "pass",
-            "failures": failures,
-            "clarification_recorded": bool(clarifications),
-            "answer_review": (
-                "The audit verifies that execution stopped for clarification; "
-                "wording may still be reviewed separately."
-            ),
-        }
+        return _evaluate_clarification_request(
+            clarification_results,
+            resolved_queries,
+            analysis_results,
+        )
+    return _evaluate_analysis_request(
+        expectation,
+        events,
+        resolved_queries,
+        analysis_results,
+    )
+
+
+def _evaluate_metric_catalog_request(
+    expectation: dict,
+    catalog_outputs: list[dict],
+    queries: list[dict],
+    analysis_outputs: list[dict],
+) -> dict:
+    """Verify that discovery returned exactly the expected metric catalog."""
+
+    failures = []
+    if queries or analysis_outputs:
+        failures.append("Executed an analysis when metric discovery was requested.")
+    if not catalog_outputs:
+        failures.append("No audited metric catalog result was recorded.")
+    for catalog in catalog_outputs:
+        actual_ids = [metric["metric_id"] for metric in catalog["metrics"]]
+        expected_ids = expectation["metric_ids"]
+        if actual_ids != expected_ids:
+            failures.append(
+                f"Metric catalog mismatch: {actual_ids!r} != {expected_ids!r}"
+            )
+    return {
+        "status": "fail" if failures else "pass",
+        "failures": failures,
+        "answer_review": "Catalog selection and completeness verified from audit.",
+    }
+
+
+def _evaluate_clarification_request(
+    clarifications: list,
+    queries: list[dict],
+    analysis_outputs: list[dict],
+) -> dict:
+    """Verify that an ambiguous request stopped before analysis."""
+
+    failures = []
+    if queries or analysis_outputs:
+        failures.append("Executed an analysis when clarification was required.")
+    if not clarifications:
+        failures.append("No audited clarification was recorded.")
+    return {
+        "status": "fail" if failures else "pass",
+        "failures": failures,
+        "clarification_recorded": bool(clarifications),
+        "answer_review": (
+            "The audit verifies that execution stopped for clarification; "
+            "wording may still be reviewed separately."
+        ),
+    }
+
+
+def _evaluate_analysis_request(expectation, events, queries, outputs) -> dict:
+    """Verify interpreted scope and deterministic result values."""
+
+    failures = []
     if not queries:
         failures.append("No validated query: the model did not complete the requested tool call.")
     for query in queries:
@@ -194,7 +263,12 @@ def score_turn(expectation, events):
         for key, actual in actual_lists.items():
             wanted = expected[key]
             if len(actual) != len(wanted) or any(
-                not same_value(a, b) for a, b in zip(actual, wanted, strict=False)
+                not values_are_equivalent(actual_value, expected_value)
+                for actual_value, expected_value in zip(
+                    actual,
+                    wanted,
+                    strict=False,
+                )
             ):
                 failures.append(f"Result mismatch for {key}: {actual!r} != {wanted!r}")
     return {

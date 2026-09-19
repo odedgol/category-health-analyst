@@ -26,25 +26,22 @@ The LLM will eventually help with step 1 and part of step 2. The rest should rem
 ## Current execution flow
 
 ```text
-AnalyticsQuerySpec
+AnalysisQuery
         |
         v
-   Query validation
-        |
-        v
-   Deterministic planner
+ Explicit intent routing
         |
         v
    MetricsRepository
         |
         v
-   AnalyticsResult
+  AnalysisResponse
         |
         v
      AuditTrail
 ```
 
-The current agent receives an already structured `AnalyticsQuerySpec`. This allows us to test the business behavior without mixing language interpretation, database access, and analytical logic in the same test.
+The analyzer receives an already resolved `AnalysisQuery`. This allows us to test the business behavior without mixing language interpretation, database access, and analytical logic in the same test.
 
 ## Why the agent should not execute arbitrary instructions
 
@@ -86,15 +83,15 @@ An internal operation enum may still be useful for routing, authorization, repor
 
 ## Current operations
 
-The current planner supports these normalized operations:
+`CategoryHealthAnalyzer.analyze()` routes these normalized intents directly:
 
 | Operation | Purpose |
 |---|---|
 | `snapshot` | Return the latest relevant value for a category and site |
-| `daily_trend` | Return one selected update per day across a date range |
-| `period_comparison` | Compare two date ranges |
-| `site_comparison` | Compare the same metric across two sites |
-| `change_analysis` | Explain the changes between observations |
+| `trend` | Return one selected update per day across a date range |
+| `compare_periods` | Compare two date ranges |
+| `compare_sites` | Compare the same metric across two sites |
+| `explain_change` | Describe first-to-last changes between observations |
 
 These operations are deliberately small. Each one has a clear input contract and can be tested independently.
 
@@ -144,7 +141,7 @@ Those features depend on this deterministic core. Building them first would make
 
 This guide is complete when:
 
-- a valid `AnalyticsQuerySpec` reaches the agent,
+- a valid `AnalysisQuery` reaches the analyzer,
 - the correct plan is produced,
 - the repository returns the correct records,
 - multiple same-day updates are reduced to the latest LMD,

@@ -93,7 +93,7 @@ def create_analysis_tool(
         """Analyze complete category/site metric rows for the requested scope."""
 
         audit = current_audit.get() or AuditTrail(audit_sink)
-        return service.analyze(
+        return service.analyze_arguments(
             {
                 "intent": intent,
                 "category": category,

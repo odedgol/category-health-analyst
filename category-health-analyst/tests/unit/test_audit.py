@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 from category_health.audit import (
     AuditStatus,
@@ -5,7 +7,21 @@ from category_health.audit import (
     InMemoryAuditSink,
     current_audit,
 )
-from category_health.domain.query import AnalyticsQuerySpec, QueryIntent
+from category_health.domain.query import AnalysisQuery, QueryIntent
+from category_health.domain.models import DateRange
+
+
+def trend_query() -> AnalysisQuery:
+    return AnalysisQuery(
+        intent=QueryIntent.TREND,
+        metric_ids=("image_count",),
+        category_id=20081,
+        site_ids=(77,),
+        date_range=DateRange(
+            start=date(2026, 9, 9),
+            end=date(2026, 9, 10),
+        ),
+    )
 
 
 def test_successful_step_records_started_and_succeeded_events() -> None:
@@ -63,13 +79,7 @@ def test_traces_are_isolated() -> None:
 def test_domain_objects_are_recorded_as_json_safe_snapshots() -> None:
     sink = InMemoryAuditSink()
     audit = AuditTrail(sink)
-    query = AnalyticsQuerySpec(
-        intent=QueryIntent.TREND,
-        metric_ids=("image_count",),
-        category_id=20081,
-        site_ids=(77,),
-        confidence=0.9,
-    )
+    query = trend_query()
 
     with audit.step("validate_query", input_object=query) as step:
         step.set_output_object(query)
@@ -83,13 +93,7 @@ def test_domain_objects_are_recorded_as_json_safe_snapshots() -> None:
 def test_lists_of_domain_objects_are_recorded_as_structured_data() -> None:
     sink = InMemoryAuditSink()
     audit = AuditTrail(sink)
-    query = AnalyticsQuerySpec(
-        intent=QueryIntent.TREND,
-        metric_ids=("image_count",),
-        category_id=20081,
-        site_ids=(77,),
-        confidence=0.9,
-    )
+    query = trend_query()
 
     with audit.step("retrieve_updates") as step:
         step.set_output_object([query])

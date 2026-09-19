@@ -2,6 +2,7 @@ from datetime import date
 
 import pytest
 from category_health.application.requests import (
+    AnalysisRequest,
     AnalysisRequestResolver,
     ToolResolutionError,
 )
@@ -50,34 +51,25 @@ def test_resolver_builds_trend_query_and_audits_resolution() -> None:
     audit = AuditTrail(sink)
 
     result = resolver.resolve(
-        {
-            "intent": "trend",
-            "category": "Armor",
-            "sites": ["Deutschland"],
-            "metrics": ["image coverage"],
-            "start_date": date(2026, 9, 1),
-            "end_date": date(2026, 9, 7),
-        },
+        AnalysisRequest.model_validate(
+            {
+                "intent": "trend",
+                "category": "Armor",
+                "sites": ["Deutschland"],
+                "metrics": ["image coverage"],
+                "start_date": date(2026, 9, 1),
+                "end_date": date(2026, 9, 7),
+            }
+        ),
         audit=audit,
     )
 
     assert result.category_id == 100
     assert result.site_ids == (77,)
     assert result.metric_ids == ("image_coverage_percentage",)
-    assert result.is_executable
     assert [event.step for event in sink.for_trace(audit.trace_id)] == [
-        "select_tool",
-        "select_tool",
-        "validate_tool_arguments",
-        "validate_tool_arguments",
-        "resolve_category",
-        "resolve_category",
-        "resolve_sites",
-        "resolve_sites",
-        "resolve_metrics",
-        "resolve_metrics",
-        "build_query",
-        "build_query",
+        "resolve_request",
+        "resolve_request",
     ]
 
 
@@ -93,24 +85,24 @@ def test_resolver_rejects_ambiguous_category() -> None:
 
     with pytest.raises(ToolResolutionError, match="ambiguous") as error:
         resolver.resolve(
-            {
-                "intent": "trend",
-                "category": "Armor",
-                "sites": ["Germany"],
-                "metrics": ["image coverage"],
-                "start_date": "2026-09-01",
-                "end_date": "2026-09-07",
-            }
+            AnalysisRequest.model_validate(
+                {
+                    "intent": "trend",
+                    "category": "Armor",
+                    "sites": ["Germany"],
+                    "metrics": ["image coverage"],
+                    "start_date": "2026-09-01",
+                    "end_date": "2026-09-07",
+                }
+            )
         )
 
     assert error.value.unresolved_fields == ("category",)
 
 
 def test_resolver_rejects_unexpected_arguments() -> None:
-    resolver, _ = _resolver()
-
     with pytest.raises(ValueError, match="unexpected"):
-        resolver.resolve(
+        AnalysisRequest.model_validate(
             {
                 "intent": "snapshot",
                 "category": "Armor",

@@ -106,13 +106,8 @@ The resulting Langfuse tree is one trace:
 ```text
 MCP tools/call
 └── mcp_tool_call [tool]
-    ├── select_tool [span]
-    ├── resolve_category [span]
-    ├── resolve_sites [span]
-    ├── resolve_metrics [span]
-    ├── build_query [span]
-    ├── plan_query [span]
-    ├── execute_plan [span]
+    ├── resolve_request [span]
+    ├── execute_<intent> [span]
     └── calculate_and_project [span]
 ```
 

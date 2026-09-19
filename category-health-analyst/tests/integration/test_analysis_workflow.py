@@ -7,13 +7,18 @@ from types import SimpleNamespace
 
 import duckdb
 import pytest
-from category_health.application.engine import AnalyticsEngine
+from category_health.application.analysis import CategoryHealthAnalyzer
 from category_health.agent.deep_agent import create_analysis_tool
-from category_health.application.output import expose_requested_metrics
 from category_health.agent.session import AnalysisSession
-from category_health.application.requests import AnalyzeCategoryHealthInput
+from category_health.application.requests import AnalysisRequest
 from category_health.application.service import CategoryHealthService
-from category_health.audit import AuditEvent, InMemoryAuditSink, JsonlAuditSink, current_audit
+from category_health.audit import (
+    AuditEvent,
+    AuditTrail,
+    InMemoryAuditSink,
+    JsonlAuditSink,
+    current_audit,
+)
 from category_health.catalogs.catalogs import (
     MetricCatalog,
     MetricDefinition,
@@ -22,7 +27,7 @@ from category_health.catalogs.catalogs import (
 )
 from category_health.catalogs.categories import CategoryCatalog, CategoryDefinition
 from category_health.domain.models import CategorySiteMetrics, DateRange
-from category_health.domain.query import AnalyticsQuerySpec
+from category_health.domain.query import AnalysisQuery
 from category_health.repositories.duckdb import DuckDbMetricsRepository
 from category_health.repositories.in_memory import InMemoryMetricsRepository
 from category_health.repositories.mock_data import seed_mock_data
@@ -65,16 +70,16 @@ def analyze(
     end=3,
     comparison=None,
 ):
-    query = AnalyticsQuerySpec(
+    query = AnalysisQuery(
         intent=intent,
         category_id=20081,
         site_ids=sites,
         metric_ids=metrics,
         date_range=DateRange(start=date(2026, 9, start), end=date(2026, 9, end)),
         comparison_range=comparison,
-        confidence=1,
     )
-    return expose_requested_metrics(AnalyticsEngine(repository, InMemoryAuditSink()).run(query))
+    sink = InMemoryAuditSink()
+    return CategoryHealthAnalyzer(repository).analyze(query, AuditTrail(sink))
 
 
 def test_exact_trend_count_lmd_units_and_booleans(repository):
@@ -176,15 +181,15 @@ def test_timezone_roundtrip(repository):
 
 def test_mock_supports_thirty_day_queries(repository):
     seed_mock_data(repository)
-    query = AnalyticsQuerySpec(
+    query = AnalysisQuery(
         intent="trend",
         category_id=20081,
         site_ids=(77,),
         metric_ids=("image_count",),
         date_range=DateRange(start=date(2026, 8, 12), end=date(2026, 9, 10)),
-        confidence=1,
     )
-    response = expose_requested_metrics(AnalyticsEngine(repository, InMemoryAuditSink()).run(query))
+    sink = InMemoryAuditSink()
+    response = CategoryHealthAnalyzer(repository).analyze(query, AuditTrail(sink))
     assert len(response.values) == 30 and len(response.comparisons) == 29
     assert response.status == "ok"
 
@@ -214,7 +219,7 @@ def test_invalid_requests_are_rejected(changes):
     )
     args.update(changes)
     with pytest.raises(ValidationError):
-        AnalyzeCategoryHealthInput.model_validate(args)
+        AnalysisRequest.model_validate(args)
 
 
 def make_tool(repository, sink):

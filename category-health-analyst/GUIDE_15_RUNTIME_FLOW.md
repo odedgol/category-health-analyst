@@ -12,11 +12,12 @@ ui/app.py: main
   -> agent/deep_agent.py: analyze_category_health tool
   -> application/service.py: CategoryHealthService.analyze
   -> application/requests.py: AnalysisRequestResolver.resolve
-  -> application/engine.py: AnalyticsEngine.run
-  -> application/planner.py: build_plan
+  -> application/analysis.py: CategoryHealthAnalyzer.analyze
+  -> one explicit method: _snapshot / _trend / _compare_periods /
+                          _compare_sites / _explain_change
   -> domain/ports.py: MetricsRepository
   -> repositories/duckdb.py: DuckDbMetricsRepository
-  -> application/output.py: expose_requested_metrics
+  -> application/output.py: AnalysisResponse + compare_observations
   -> Deep Agent presentation
   -> AnalysisSession history and structured result
   -> Streamlit answer and chart
@@ -38,7 +39,7 @@ interpretation and this server performs deterministic analytics.
 ## Responsibility boundary
 
 The model may choose a tool, intent and structured arguments. The application owns
-validation, catalog resolution, planning, repository selection, latest-LMD rules,
+validation, catalog resolution, intent routing, repository selection, latest-LMD rules,
 calculations, warnings and no-data behavior.
 
 For a stage-by-stage example with each class, method, input and output, read

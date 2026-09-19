@@ -10,15 +10,6 @@ from decimal import Decimal
 from pydantic import BaseModel, Field, model_validator
 
 
-class Site(BaseModel):
-    """An eBay marketplace/site with user-facing aliases."""
-
-    site_id: int = Field(ge=0)
-    name: str
-    country: str
-    aliases: tuple[str, ...] = ()
-
-
 class DateRange(BaseModel):
     """An inclusive calendar date range."""
 
@@ -70,12 +61,3 @@ class CategorySiteMetrics(BaseModel):
             raise ValueError("last_modified_at cannot be before observed_date")
 
         return self
-
-
-class MetricComparison(BaseModel):
-    """A comparison calculated by the analyst from two stored updates."""
-
-    previous_value: Decimal
-    current_value: Decimal
-    absolute_delta: Decimal
-    percentage_point_delta: Decimal

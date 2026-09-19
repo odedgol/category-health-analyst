@@ -186,7 +186,7 @@ date range = previous calendar week
 comparison range = none
 ```
 
-This list will later become the foundation of `AnalyticsQuerySpec`.
+This list will later become the foundation of `AnalysisQuery`.
 
 ## Decisions still open
 

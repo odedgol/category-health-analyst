@@ -9,11 +9,11 @@ from category_health.audit import AuditSink, AuditTrail
 from category_health.catalogs.catalogs import MetricCatalog, SiteCatalog
 from category_health.catalogs.categories import CategoryCatalog
 from category_health.domain.models import DateRange
-from category_health.domain.query import AnalyticsQuerySpec, QueryIntent
+from category_health.domain.query import AnalysisQuery, QueryIntent
 
 
-class AnalyzeCategoryHealthInput(BaseModel):
-    """Validated arguments for the single general analysis tool."""
+class AnalysisRequest(BaseModel):
+    """Untrusted analysis scope received from an interface adapter."""
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     intent: QueryIntent
@@ -26,7 +26,7 @@ class AnalyzeCategoryHealthInput(BaseModel):
     comparison_end_date: date | None = None
 
     @model_validator(mode="after")
-    def validate_scope(self) -> "AnalyzeCategoryHealthInput":
+    def validate_scope(self) -> "AnalysisRequest":
         for start, end in (
             (self.start_date, self.end_date),
             (self.comparison_start_date, self.comparison_end_date),
@@ -91,75 +91,61 @@ class AnalysisRequestResolver:
 
     def resolve(
         self,
-        arguments: dict[str, Any],
+        request: AnalysisRequest,
         audit: AuditTrail | None = None,
-    ) -> AnalyticsQuerySpec:
-        """Validate and resolve one analysis request."""
+    ) -> AnalysisQuery:
+        """Resolve one validated request into a canonical analytics query."""
 
         audit = audit or AuditTrail(self._audit_sink)
-        tool_call = {
-            "name": "analyze_category_health",
-            "arguments": arguments,
-        }
-        with audit.step("select_tool", input_object=tool_call) as step:
-            step.set_output({"tool_name": "analyze_category_health"})
-            step.set_output_object(tool_call)
-
-        return self._resolve_analysis(arguments, audit)
-
-    def _resolve_analysis(
-        self, arguments: dict[str, Any], audit: AuditTrail
-    ) -> AnalyticsQuerySpec:
-        with audit.step("validate_tool_arguments", input_object=arguments) as step:
-            tool_input = AnalyzeCategoryHealthInput.model_validate(arguments)
-            step.set_output({"valid": True})
-            step.set_output_object(tool_input)
-
-        with audit.step("resolve_category", input_object=tool_input.category) as step:
-            candidates = self._category_catalog.candidates_by_name(tool_input.category)
-            category = self._category_catalog.resolve(tool_input.category)
-            if category is None:
-                if len(candidates) > 1:
-                    raise ToolResolutionError(
-                        f"Category is ambiguous: {tool_input.category}. Choose an ID: "
-                        + ", ".join(str(c.category_id) for c in candidates),
-                        ("category",),
-                    )
-                raise ToolResolutionError(f"Unknown category: {tool_input.category}", ("category",))
-            step.set_output({"category_id": category.category_id})
-            step.set_output_object(category)
-
-        with audit.step("resolve_sites", input_object=tool_input.sites) as step:
-            sites = []
-            for mention in tool_input.sites:
-                site = self._site_catalog.resolve(mention)
-                if site is None:
-                    raise ToolResolutionError(f"Unknown site: {mention}", ("sites",))
-                sites.append(site)
-            step.set_output({"site_count": len(sites)})
-            step.set_output_object(sites)
-
-        with audit.step("resolve_metrics", input_object=tool_input.metrics) as step:
-            metrics = []
-            for mention in tool_input.metrics:
-                metric = self._metric_catalog.resolve(mention)
-                if metric is None:
-                    raise ToolResolutionError(f"Unknown metric: {mention}", ("metrics",))
-                metrics.append(metric)
-            step.set_output({"metric_count": len(metrics)})
-            step.set_output_object(metrics)
-
-        with audit.step("build_query") as step:
-            query = AnalyticsQuerySpec(
-                intent=tool_input.intent,
-                metric_ids=tuple(dict.fromkeys(metric.metric_id for metric in metrics)),
-                category_id=category.category_id,
-                site_ids=tuple(dict.fromkeys(site.site_id for site in sites)),
-                date_range=tool_input.date_range(),
-                comparison_range=tool_input.comparison_range(),
-                confidence=1.0,
+        with audit.step("resolve_request", input_object=request) as step:
+            query = self._resolve_query(request)
+            step.set_output(
+                {
+                    "category_id": query.category_id,
+                    "site_count": len(query.site_ids),
+                    "metric_count": len(query.metric_ids),
+                }
             )
-            step.set_output({"is_executable": query.is_executable})
             step.set_output_object(query)
-
         return query
+
+    def _resolve_query(
+        self,
+        request: AnalysisRequest,
+    ) -> AnalysisQuery:
+        candidates = self._category_catalog.candidates_by_name(request.category)
+        category = self._category_catalog.resolve(request.category)
+        if category is None:
+            if len(candidates) > 1:
+                raise ToolResolutionError(
+                    f"Category is ambiguous: {request.category}. Choose an ID: "
+                    + ", ".join(str(candidate.category_id) for candidate in candidates),
+                    ("category",),
+                )
+            raise ToolResolutionError(
+                f"Unknown category: {request.category}",
+                ("category",),
+            )
+
+        sites = []
+        for mention in request.sites:
+            site = self._site_catalog.resolve(mention)
+            if site is None:
+                raise ToolResolutionError(f"Unknown site: {mention}", ("sites",))
+            sites.append(site)
+
+        metrics = []
+        for mention in request.metrics:
+            metric = self._metric_catalog.resolve(mention)
+            if metric is None:
+                raise ToolResolutionError(f"Unknown metric: {mention}", ("metrics",))
+            metrics.append(metric)
+
+        return AnalysisQuery(
+            intent=request.intent,
+            metric_ids=tuple(dict.fromkeys(metric.metric_id for metric in metrics)),
+            category_id=category.category_id,
+            site_ids=tuple(dict.fromkeys(site.site_id for site in sites)),
+            date_range=request.date_range(),
+            comparison_range=request.comparison_range(),
+        )

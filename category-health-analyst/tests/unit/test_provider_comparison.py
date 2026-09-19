@@ -1,4 +1,7 @@
-from category_health.evaluation import build_provider_comparison, review_answer_wording
+from category_health.evaluation import (
+    build_provider_comparison,
+    find_unsupported_answer_claims,
+)
 
 
 def report(provider, status, duration, model=None):
@@ -59,9 +62,11 @@ def test_same_provider_models_are_compared_by_model_name() -> None:
 
 
 def test_answer_review_catches_unsupported_analytical_claims() -> None:
-    issues = review_answer_wording(
+    issues = find_unsupported_answer_claims(
         "The average fell and this was statistically significant, a positive change."
     )
 
     assert len(issues) == 3
-    assert review_answer_wording("Coverage decreased by 8 percentage points.") == []
+    assert find_unsupported_answer_claims(
+        "Coverage decreased by 8 percentage points."
+    ) == []

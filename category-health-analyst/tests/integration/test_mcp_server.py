@@ -64,7 +64,12 @@ async def test_mcp_lists_tools_and_calls_analysis(mcp_runtime) -> None:
         for event in events
         if event.status.value == "succeeded"
     }
-    assert completed["execute_plan"].output_summary["record_count"] == 2
+    assert completed["execute_trend"].output_summary == {
+        "status": "ok",
+        "value_count": 2,
+        "comparison_count": 1,
+        "warning_count": 0,
+    }
     assert completed["calculate_and_project"].output_summary == {
         "status": "ok",
         "value_count": 2,

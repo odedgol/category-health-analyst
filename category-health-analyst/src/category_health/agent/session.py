@@ -55,9 +55,40 @@ class AnalysisSession:
         self.trace_tags = trace_tags
 
     def ask(self, question: str):
+        """Run one audited conversation turn and commit successful history."""
+
         if not question.strip():
             raise ValueError("Please enter a question.")
         self.last_analysis_output = None
+        audit = self._start_turn_audit()
+        today = self._today()
+
+        with audit.as_current():
+            with audit.step(
+                "user_request",
+                input_summary={"question_length": len(question), "today": today},
+                input_object={"question": question, "today": today},
+            ) as request_step:
+                result = self.agent.invoke(
+                    {"messages": self._messages_for_turn(question, today)},
+                    config=self._invocation_config(),
+                )
+                answer = result["messages"][-1]
+                self._audit_model_result(audit, result["messages"], answer.content)
+                request_step.set_output(
+                    {
+                        "status": "ok",
+                        "answer_length": len(str(answer.content)),
+                    }
+                )
+                request_step.set_output_object(
+                    {"status": "ok", "answer": answer.content}
+                )
+                self.messages = result["messages"]
+                self.last_analysis_output = _latest_analysis_output(self.messages)
+                return answer
+
+    def _start_turn_audit(self) -> AuditTrail:
         audit = AuditTrail(
             self.audit_sink,
             trace_name=self.trace_name,
@@ -65,40 +96,31 @@ class AnalysisSession:
             tags=self.trace_tags,
         )
         self.last_trace_id = audit.trace_id
-        today = (self.today or datetime.now(self.timezone).date()).isoformat()
-        with audit.as_current():
-            with audit.step(
-                "user_request",
-                input_summary={"question_length": len(question), "today": today},
-                input_object={"question": question, "today": today},
-            ) as request_step:
-                callbacks = getattr(self.audit_sink, "langchain_callbacks", lambda: [])()
-                invocation_config = {"recursion_limit": 20}
-                if callbacks:
-                    invocation_config["callbacks"] = callbacks
-                result = self.agent.invoke(
-                    {
-                        "messages": [
-                            *self.messages,
-                            {"role": "user", "content": f"Today is {today}.\n{question}"},
-                        ]
-                    },
-                    config=invocation_config,
-                )
-                with audit.step("model_messages") as step:
-                    step.set_output_object(result["messages"])
-                with audit.step("final_answer") as step:
-                    step.set_output_object(result["messages"][-1].content)
-                answer_content = result["messages"][-1].content
-                request_step.set_output(
-                    {
-                        "status": "ok",
-                        "answer_length": len(str(answer_content)),
-                    }
-                )
-                request_step.set_output_object(
-                    {"status": "ok", "answer": answer_content}
-                )
-                self.messages = result["messages"]
-                self.last_analysis_output = _latest_analysis_output(self.messages)
-                return result["messages"][-1]
+        return audit
+
+    def _today(self) -> str:
+        return (self.today or datetime.now(self.timezone).date()).isoformat()
+
+    def _messages_for_turn(self, question: str, today: str) -> list[object]:
+        return [
+            *self.messages,
+            {"role": "user", "content": f"Today is {today}.\n{question}"},
+        ]
+
+    def _invocation_config(self) -> dict[str, Any]:
+        config: dict[str, Any] = {"recursion_limit": 20}
+        callbacks = getattr(self.audit_sink, "langchain_callbacks", lambda: [])()
+        if callbacks:
+            config["callbacks"] = callbacks
+        return config
+
+    @staticmethod
+    def _audit_model_result(
+        audit: AuditTrail,
+        messages: list[object],
+        answer: object,
+    ) -> None:
+        with audit.step("model_messages") as step:
+            step.set_output_object(messages)
+        with audit.step("final_answer") as step:
+            step.set_output_object(answer)

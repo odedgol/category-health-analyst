@@ -1,12 +1,14 @@
 """Application entry point for deterministic category-health use cases."""
 
 from typing import Any
+from uuid import UUID
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
-from category_health.application.engine import AnalyticsEngine
-from category_health.application.output import expose_requested_metrics
+from category_health.application.analysis import CategoryHealthAnalyzer
+from category_health.application.output import AnalysisResponse
 from category_health.application.requests import (
+    AnalysisRequest,
     AnalysisRequestResolver,
     ToolResolutionError,
 )
@@ -16,47 +18,17 @@ from category_health.catalogs.categories import CategoryCatalog
 from category_health.domain.ports import MetricsRepository
 
 
-def metric_options(metric_catalog: MetricCatalog) -> list[dict[str, Any]]:
-    """Return the complete model-facing representation of the metric catalog."""
+class ClarificationResponse(BaseModel):
+    """A typed request for information required before analysis can run."""
 
-    return [
-        {
-            "metric_id": metric.metric_id,
-            "display_name": metric.display_name,
-            "unit": metric.unit,
-            "accepted_names": [
-                metric.display_name,
-                metric.metric_id,
-                *metric.aliases,
-            ],
-        }
-        for metric in metric_catalog.metrics
-    ]
+    status: str = "needs_clarification"
+    trace_id: UUID
+    message: str
+    unresolved_fields: tuple[str, ...]
+    available_metrics: list[dict[str, Any]] | None = None
 
 
-def list_metric_catalog(
-    metric_catalog: MetricCatalog,
-    audit_sink: AuditSink,
-    *,
-    audit: AuditTrail | None = None,
-) -> dict[str, Any]:
-    """Run the deterministic metric-discovery use case."""
-
-    audit = audit or AuditTrail(audit_sink)
-    response = {
-        "status": "ok",
-        "trace_id": str(audit.trace_id),
-        "metrics": metric_options(metric_catalog),
-    }
-    with audit.step("list_available_metrics") as step:
-        step.set_output(
-            {
-                "metric_count": len(metric_catalog.metrics),
-                "source": "metric_catalog",
-            }
-        )
-        step.set_output_object(response)
-    return response
+ApplicationResponse = AnalysisResponse | ClarificationResponse
 
 
 class CategoryHealthService:
@@ -77,61 +49,96 @@ class CategoryHealthService:
             metric_catalog=metric_catalog,
             audit_sink=audit_sink,
         )
-        self._analytics = AnalyticsEngine(repository, audit_sink)
+        self._analyzer = CategoryHealthAnalyzer(repository)
         self._metric_catalog = metric_catalog
         self._audit_sink = audit_sink
 
     def analyze(
         self,
+        request: AnalysisRequest,
+        *,
+        audit: AuditTrail | None = None,
+    ) -> ApplicationResponse:
+        """Resolve one typed request and return its deterministic analysis."""
+
+        audit = audit or AuditTrail(self._audit_sink)
+        try:
+            query = self._request_resolver.resolve(request, audit=audit)
+        except ToolResolutionError as error:
+            return self._clarification_response(error, audit)
+        return self._analyzer.analyze(query, audit)
+
+    def analyze_arguments(
+        self,
         arguments: dict[str, Any],
         *,
         audit: AuditTrail | None = None,
     ) -> dict[str, Any]:
-        """Run the complete deterministic analysis use case."""
+        """Validate untrusted adapter arguments before entering ``analyze``."""
 
         audit = audit or AuditTrail(self._audit_sink)
         try:
-            query = self._request_resolver.resolve(arguments, audit=audit)
-        except (ToolResolutionError, ValidationError) as error:
-            return self._clarification_response(error, audit)
+            request = AnalysisRequest.model_validate(arguments)
+        except ValidationError as error:
+            response = self._clarification_response(error, audit)
+        else:
+            response = self.analyze(request, audit=audit)
+        return response.model_dump(mode="json", exclude_none=True)
 
-        result = self._analytics.run(query, audit=audit)
-        with audit.step("calculate_and_project", input_object=result) as step:
-            response = expose_requested_metrics(result).model_dump(mode="json")
+    def list_metrics(self, *, audit: AuditTrail | None = None) -> dict[str, Any]:
+        """Return every supported metric and its accepted names."""
+
+        audit = audit or AuditTrail(self._audit_sink)
+        response = {
+            "status": "ok",
+            "trace_id": str(audit.trace_id),
+            "metrics": self._available_metric_options(),
+        }
+        with audit.step("list_available_metrics") as step:
             step.set_output(
                 {
-                    "status": response["status"],
-                    "value_count": len(response["values"]),
-                    "comparison_count": len(response["comparisons"]),
-                    "warning_count": len(response["warnings"]),
+                    "metric_count": len(response["metrics"]),
+                    "source": "metric_catalog",
                 }
             )
             step.set_output_object(response)
         return response
 
-    def list_metrics(self, *, audit: AuditTrail | None = None) -> dict[str, Any]:
-        """Return every supported metric and its accepted names."""
+    def _available_metric_options(self) -> list[dict[str, Any]]:
+        """Describe the closed metric catalog for users and model tools."""
 
-        return list_metric_catalog(
-            self._metric_catalog,
-            self._audit_sink,
-            audit=audit,
-        )
+        return [
+            {
+                "metric_id": metric.metric_id,
+                "display_name": metric.display_name,
+                "unit": metric.unit,
+                "accepted_names": [
+                    metric.display_name,
+                    metric.metric_id,
+                    *metric.aliases,
+                ],
+            }
+            for metric in self._metric_catalog.metrics
+        ]
 
     def _clarification_response(
         self,
         error: ToolResolutionError | ValidationError,
         audit: AuditTrail,
-    ) -> dict[str, Any]:
-        unresolved_fields = list(getattr(error, "unresolved_fields", ("arguments",)))
-        response: dict[str, Any] = {
-            "status": "needs_clarification",
-            "trace_id": str(audit.trace_id),
-            "message": str(error),
-            "unresolved_fields": unresolved_fields,
-        }
-        if "metrics" in unresolved_fields:
-            response["available_metrics"] = metric_options(self._metric_catalog)
+    ) -> ClarificationResponse:
+        unresolved_fields = tuple(
+            getattr(error, "unresolved_fields", ("arguments",))
+        )
+        response = ClarificationResponse(
+            trace_id=audit.trace_id,
+            message=str(error),
+            unresolved_fields=unresolved_fields,
+            available_metrics=(
+                self._available_metric_options()
+                if "metrics" in unresolved_fields
+                else None
+            ),
+        )
         with audit.step("clarification") as step:
             step.set_output_object(response)
         return response

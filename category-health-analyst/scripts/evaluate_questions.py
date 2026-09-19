@@ -15,8 +15,8 @@ from category_health.bootstrap import create_demo_runtime
 from category_health.config import load_local_environment
 from category_health.evaluation import (
     build_provider_comparison,
-    review_answer_wording,
-    score_turn,
+    evaluate_turn_from_audit,
+    find_unsupported_answer_claims,
 )
 from category_health.model_provider import (
     ModelSettings,
@@ -58,7 +58,7 @@ def run_suite(
     sink = runtime.audit_sink
 
     def analyze(**arguments):
-        return runtime.service.analyze(arguments)
+        return runtime.service.analyze_arguments(arguments)
 
     graph = None
     if live:
@@ -136,9 +136,13 @@ def run_suite(
                         )
                         item["trace_id"] = result["trace_id"]
                     if item.get("status") != "skipped":
-                        item.update(score_turn(turn, sink.events[event_start:]))
+                        item.update(
+                            evaluate_turn_from_audit(turn, sink.events[event_start:])
+                        )
                         if live and isinstance(item.get("answer"), str):
-                            wording_failures = review_answer_wording(item["answer"])
+                            wording_failures = find_unsupported_answer_claims(
+                                item["answer"]
+                            )
                             item["wording_failures"] = wording_failures
                             if wording_failures and item["status"] == "pass":
                                 item["status"] = "needs_review"

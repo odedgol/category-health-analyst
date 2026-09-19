@@ -98,12 +98,16 @@ This is why LMD belongs in the domain model.
 We should model these concepts explicitly:
 
 ```python
-class Site(BaseModel):
+class SiteDefinition:
     site_id: int
     name: str
     country: str
+    abbreviation: str
     aliases: tuple[str, ...]
 ```
+
+`SiteDefinition` belongs to the static site catalog rather than the stored metric
+domain model. Observations reference it by `site_id`.
 
 ```python
 class DateRange(BaseModel):
