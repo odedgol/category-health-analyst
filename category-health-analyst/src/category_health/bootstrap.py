@@ -28,6 +28,7 @@ from category_health.model_provider import (
 )
 from category_health.repositories.duckdb import DuckDbMetricsRepository
 from category_health.repositories.mock_data import seed_mock_data
+from category_health.tool_adapter import CategoryHealthToolAdapter
 
 
 @dataclass
@@ -41,6 +42,7 @@ class CategoryHealthRuntime:
     metric_catalog: MetricCatalog
     audit_sink: CompositeAuditSink
     service: CategoryHealthService
+    tool_adapter: CategoryHealthToolAdapter
 
     def close(self) -> None:
         """Flush telemetry and release the process-owned database connection."""
@@ -123,8 +125,8 @@ def create_demo_runtime(
         category_catalog=category_catalog,
         site_catalog=site_catalog,
         metric_catalog=metric_catalog,
-        audit_sink=audit_sink,
     )
+    tool_adapter = CategoryHealthToolAdapter(service, audit_sink)
     return CategoryHealthRuntime(
         connection=connection,
         repository=repository,
@@ -133,6 +135,7 @@ def create_demo_runtime(
         metric_catalog=metric_catalog,
         audit_sink=audit_sink,
         service=service,
+        tool_adapter=tool_adapter,
     )
 
 
@@ -156,8 +159,7 @@ def create_demo_conversation_runtime(
     agent = create_category_health_deep_agent(
         model=build_agent_model(settings),
         harness_profile_key=settings.harness_profile_key,
-        service=application.service,
-        audit_sink=application.audit_sink,
+        tool_adapter=application.tool_adapter,
     )
     conversation_id = session_id or str(uuid4())
     trace_name = f"category-health-{source}-request"

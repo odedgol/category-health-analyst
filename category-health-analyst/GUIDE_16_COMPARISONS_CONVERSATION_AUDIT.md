@@ -86,7 +86,7 @@ errors propagate and the request is marked failed; they are not mislabeled as am
 Tool retries within that invocation reuse it; each next user turn gets a new trace.
 `AuditTrail.step()` records started/succeeded/failed events, input/output objects,
 duration and errors. `execute_<intent>` identifies the selected branch, while
-`calculate_and_project` captures the computed response. `model_messages` and
+`analysis_response` captures the computed response. `model_messages` and
 `final_answer` capture the returned conversation.
 
 `JsonlAuditSink.record()` appends one JSON event per line to `audit/events.jsonl`.

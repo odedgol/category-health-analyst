@@ -31,6 +31,7 @@ from category_health.domain.query import AnalysisQuery
 from category_health.repositories.duckdb import DuckDbMetricsRepository
 from category_health.repositories.in_memory import InMemoryMetricsRepository
 from category_health.repositories.mock_data import seed_mock_data
+from category_health.tool_adapter import CategoryHealthToolAdapter
 from pydantic import ValidationError
 
 
@@ -78,8 +79,7 @@ def analyze(
         date_range=DateRange(start=date(2026, 9, start), end=date(2026, 9, end)),
         comparison_range=comparison,
     )
-    sink = InMemoryAuditSink()
-    return CategoryHealthAnalyzer(repository).analyze(query, AuditTrail(sink))
+    return CategoryHealthAnalyzer(repository).analyze(query)
 
 
 def test_exact_trend_count_lmd_units_and_booleans(repository):
@@ -188,8 +188,7 @@ def test_mock_supports_thirty_day_queries(repository):
         metric_ids=("image_count",),
         date_range=DateRange(start=date(2026, 8, 12), end=date(2026, 9, 10)),
     )
-    sink = InMemoryAuditSink()
-    response = CategoryHealthAnalyzer(repository).analyze(query, AuditTrail(sink))
+    response = CategoryHealthAnalyzer(repository).analyze(query)
     assert len(response.values) == 30 and len(response.comparisons) == 29
     assert response.status == "ok"
 
@@ -242,9 +241,8 @@ def make_tool(repository, sink):
                 ),
             )
         ),
-        audit_sink=sink,
     )
-    return create_analysis_tool(service, sink)
+    return create_analysis_tool(CategoryHealthToolAdapter(service, sink))
 
 
 def test_clarification_retry_history_and_persistent_audit(repository, tmp_path):
@@ -289,7 +287,7 @@ def test_clarification_retry_history_and_persistent_audit(repository, tmp_path):
     assert sorted(e.sequence for e in first) == list(range(1, len(first) + 1))
     assert any(e.status.value == "failed" for e in first)
     projected = next(
-        e for e in first if e.step == "calculate_and_project" and e.status.value == "succeeded"
+        e for e in first if e.step == "analysis_response" and e.status.value == "succeeded"
     )
     assert Decimal(projected.output_object["comparisons"][0]["delta"]) == -8
     assert any(e.step == "final_answer" for e in first)
@@ -361,12 +359,10 @@ def test_real_framework_propagates_audit_through_tool_execution(monkeypatch, tmp
         metric_catalog=MetricCatalog(
             (MetricDefinition("image_coverage_percentage", "Image coverage", "%", ()),)
         ),
-        audit_sink=sink,
     )
     graph = create_category_health_deep_agent(
         model="openai:category-health-test",
-        service=service,
-        audit_sink=sink,
+        tool_adapter=CategoryHealthToolAdapter(service, sink),
     )
     session = AnalysisSession(graph, sink)
     answer = session.ask("Show coverage September 9–10")

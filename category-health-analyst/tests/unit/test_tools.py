@@ -6,7 +6,6 @@ from category_health.application.requests import (
     AnalysisRequestResolver,
     ToolResolutionError,
 )
-from category_health.audit import AuditTrail, InMemoryAuditSink
 from category_health.catalogs.catalogs import (
     MetricCatalog,
     MetricDefinition,
@@ -18,8 +17,7 @@ from category_health.catalogs.categories import CategoryCatalog, CategoryDefinit
 
 def _resolver(
     category_catalog: CategoryCatalog | None = None,
-) -> tuple[AnalysisRequestResolver, InMemoryAuditSink]:
-    sink = InMemoryAuditSink()
+) -> AnalysisRequestResolver:
     resolver = AnalysisRequestResolver(
         category_catalog=category_catalog
         or CategoryCatalog(
@@ -41,14 +39,12 @@ def _resolver(
                 ),
             )
         ),
-        audit_sink=sink,
     )
-    return resolver, sink
+    return resolver
 
 
-def test_resolver_builds_trend_query_and_audits_resolution() -> None:
-    resolver, sink = _resolver()
-    audit = AuditTrail(sink)
+def test_resolver_builds_canonical_trend_query() -> None:
+    resolver = _resolver()
 
     result = resolver.resolve(
         AnalysisRequest.model_validate(
@@ -60,21 +56,16 @@ def test_resolver_builds_trend_query_and_audits_resolution() -> None:
                 "start_date": date(2026, 9, 1),
                 "end_date": date(2026, 9, 7),
             }
-        ),
-        audit=audit,
+        )
     )
 
     assert result.category_id == 100
     assert result.site_ids == (77,)
     assert result.metric_ids == ("image_coverage_percentage",)
-    assert [event.step for event in sink.for_trace(audit.trace_id)] == [
-        "resolve_request",
-        "resolve_request",
-    ]
 
 
 def test_resolver_rejects_ambiguous_category() -> None:
-    resolver, _ = _resolver(
+    resolver = _resolver(
         CategoryCatalog(
             (
                 CategoryDefinition(category_id=100, name="Armor"),

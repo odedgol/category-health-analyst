@@ -3,7 +3,6 @@ from decimal import Decimal
 
 from category_health.application.requests import AnalysisRequest
 from category_health.application.service import CategoryHealthService
-from category_health.audit import InMemoryAuditSink
 from category_health.catalogs.catalogs import (
     MetricCatalog,
     MetricDefinition,
@@ -51,7 +50,6 @@ def category_health_service(
                 ),
             )
         ),
-        audit_sink=InMemoryAuditSink(),
     )
 
 
@@ -121,6 +119,6 @@ def test_snapshot_explains_when_the_requested_range_has_no_data() -> None:
 def test_service_lists_the_supported_metrics() -> None:
     service = category_health_service(InMemoryMetricsRepository())
 
-    assert service.list_metrics()["metrics"][0]["metric_id"] == (
+    assert service.list_metrics().metrics[0].metric_id == (
         "image_coverage_percentage"
     )

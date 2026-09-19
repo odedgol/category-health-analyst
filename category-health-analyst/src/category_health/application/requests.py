@@ -5,7 +5,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from category_health.audit import AuditSink, AuditTrail
 from category_health.catalogs.catalogs import MetricCatalog, SiteCatalog
 from category_health.catalogs.categories import CategoryCatalog
 from category_health.domain.models import DateRange
@@ -82,37 +81,17 @@ class AnalysisRequestResolver:
         category_catalog: CategoryCatalog,
         site_catalog: SiteCatalog,
         metric_catalog: MetricCatalog,
-        audit_sink: AuditSink,
     ) -> None:
         self._category_catalog = category_catalog
         self._site_catalog = site_catalog
         self._metric_catalog = metric_catalog
-        self._audit_sink = audit_sink
 
     def resolve(
         self,
         request: AnalysisRequest,
-        audit: AuditTrail | None = None,
     ) -> AnalysisQuery:
         """Resolve one validated request into a canonical analytics query."""
 
-        audit = audit or AuditTrail(self._audit_sink)
-        with audit.step("resolve_request", input_object=request) as step:
-            query = self._resolve_query(request)
-            step.set_output(
-                {
-                    "category_id": query.category_id,
-                    "site_count": len(query.site_ids),
-                    "metric_count": len(query.metric_ids),
-                }
-            )
-            step.set_output_object(query)
-        return query
-
-    def _resolve_query(
-        self,
-        request: AnalysisRequest,
-    ) -> AnalysisQuery:
         candidates = self._category_catalog.candidates_by_name(request.category)
         category = self._category_catalog.resolve(request.category)
         if category is None:

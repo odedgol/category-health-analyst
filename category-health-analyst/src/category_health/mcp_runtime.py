@@ -72,7 +72,7 @@ class CategoryHealthMcpRuntime:
                 },
                 input_object=request,
             ) as step:
-                result = self.application.service.analyze_arguments(arguments, audit=audit)
+                result = self.application.tool_adapter.analyze(arguments, audit=audit)
                 summary = self._analysis_summary(result, audit)
                 step.set_output(
                     {
@@ -99,7 +99,7 @@ class CategoryHealthMcpRuntime:
         )
         with audit.as_current():
             with audit.step("mcp_tool_call", input_object=request) as step:
-                result = self.application.service.list_metrics(audit=audit)
+                result = self.application.tool_adapter.list_metrics(audit=audit)
                 summary = {
                     "status": str(result.get("status")),
                     "trace_id": str(audit.trace_id),

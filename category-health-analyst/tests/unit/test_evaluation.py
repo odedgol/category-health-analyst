@@ -25,7 +25,7 @@ def events():
     return [
         event("resolve_request", {"site_ids": [77]}),
         event(
-            "calculate_and_project",
+            "analysis_response",
             {
                 "status": "ok",
                 "values": [{"value": "72.0000"}, {"value": "64.0000"}],

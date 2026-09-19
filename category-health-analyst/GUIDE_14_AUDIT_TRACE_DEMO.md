@@ -11,10 +11,11 @@ The final answer is useful to a user. The audit trace is useful to the developer
 For a successful request, the trace contains pairs of events for each stage:
 
 ```text
+validate_request
 resolve_request
 execute_snapshot / execute_trend / execute_compare_periods /
 execute_compare_sites / execute_explain_change
-calculate_and_project
+analysis_response
 ```
 
 Each pair contains a `started` event and a `succeeded` event. If a step fails, the second event is marked `failed` and includes the error type and message.

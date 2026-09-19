@@ -154,7 +154,7 @@ def evaluate_turn_from_audit(expectation: dict, events: list) -> dict:
     analysis_results = [
         event.output_object
         for event in successful_events
-        if event.step == "calculate_and_project"
+        if event.step == "analysis_response"
     ]
     clarification_results = [
         event.output_object

@@ -3,7 +3,6 @@ from decimal import Decimal
 
 import duckdb
 from category_health.application.analysis import CategoryHealthAnalyzer
-from category_health.audit import AuditTrail, InMemoryAuditSink
 from category_health.domain.models import CategorySiteMetrics, DateRange
 from category_health.domain.query import AnalysisQuery, QueryIntent
 from category_health.repositories.duckdb import DuckDbMetricsRepository
@@ -26,14 +25,12 @@ def _update(day: int, hour: int, coverage: str) -> CategorySiteMetrics:
     )
 
 
-def test_analyzer_executes_and_audits_a_trend_query() -> None:
+def test_analyzer_executes_a_trend_query_without_infrastructure_concerns() -> None:
     repository = DuckDbMetricsRepository(duckdb.connect(":memory:"))
     repository.add_update(_update(9, 8, "72"))
     repository.add_update(_update(10, 8, "70"))
     repository.add_update(_update(10, 14, "64"))
-    sink = InMemoryAuditSink()
     analyzer = CategoryHealthAnalyzer(repository)
-    audit = AuditTrail(sink)
 
     result = analyzer.analyze(
         AnalysisQuery(
@@ -42,17 +39,10 @@ def test_analyzer_executes_and_audits_a_trend_query() -> None:
             category_id=20081,
             site_ids=(77,),
             date_range=DateRange(start=date(2026, 9, 9), end=date(2026, 9, 10)),
-        ),
-        audit,
+        )
     )
 
     assert [value.value for value in result.values] == [
         Decimal("72.0000"),
         Decimal("64.0000"),
-    ]
-    assert [event.step for event in sink.for_trace(audit.trace_id)] == [
-        "execute_trend",
-        "execute_trend",
-        "calculate_and_project",
-        "calculate_and_project",
     ]

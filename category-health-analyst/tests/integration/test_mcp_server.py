@@ -70,12 +70,6 @@ async def test_mcp_lists_tools_and_calls_analysis(mcp_runtime) -> None:
         "comparison_count": 1,
         "warning_count": 0,
     }
-    assert completed["calculate_and_project"].output_summary == {
-        "status": "ok",
-        "value_count": 2,
-        "comparison_count": 1,
-        "warning_count": 0,
-    }
     assert completed["mcp_tool_call"].output_object == {
         "status": "ok",
         "trace_id": payload["trace_id"],

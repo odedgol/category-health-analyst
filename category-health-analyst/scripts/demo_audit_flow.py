@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from uuid import UUID
 
 from category_health.application.requests import AnalysisRequest
 from category_health.bootstrap import create_demo_runtime
@@ -15,20 +16,19 @@ def main() -> None:
         audit_environment={},
     )
     try:
-        response = runtime.service.analyze(
-            AnalysisRequest(
-                intent="trend",
-                category="Antiques",
-                sites=("Germany",),
-                metrics=("image coverage",),
-                start_date="2026-09-09",
-                end_date="2026-09-10",
-            )
+        request = AnalysisRequest(
+            intent="trend",
+            category="Antiques",
+            sites=("Germany",),
+            metrics=("image coverage",),
+            start_date="2026-09-09",
+            end_date="2026-09-10",
         )
+        response = runtime.tool_adapter.analyze(request.model_dump(mode="json"))
 
-        print(response.model_dump_json(indent=2))
+        print(json.dumps(response, indent=2))
         print("\nAUDIT FLOW")
-        for event in runtime.audit_sink.for_trace(response.trace_id):
+        for event in runtime.audit_sink.for_trace(UUID(response["trace_id"])):
             if event.status.value != "succeeded":
                 continue
             summary = json.dumps(event.output_summary, default=str)

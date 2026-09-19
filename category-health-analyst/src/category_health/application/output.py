@@ -3,7 +3,6 @@
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
-from uuid import UUID
 
 from pydantic import BaseModel
 
@@ -36,7 +35,6 @@ class ExposedMetricComparison(BaseModel):
 
 
 class AnalysisResponse(BaseModel):
-    trace_id: UUID
     intent: str
     category_id: int
     status: Literal["ok", "partial", "no_data"]

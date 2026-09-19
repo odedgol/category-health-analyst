@@ -108,7 +108,7 @@ MCP tools/call
 └── mcp_tool_call [tool]
     ├── resolve_request [span]
     ├── execute_<intent> [span]
-    └── calculate_and_project [span]
+    └── analysis_response [span]
 ```
 
 It is tagged with `category-health`, `mcp`, and `mock-data`, and receives the trace

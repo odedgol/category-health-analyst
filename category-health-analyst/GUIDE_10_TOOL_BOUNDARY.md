@@ -173,12 +173,13 @@ The answer formatting was incorrect.
 The project uses two closed Deep Agent tools and an explicit deterministic resolver:
 
 1. `create_analysis_tool()` exposes `analyze_category_health`;
-2. `AnalysisRequest` validates raw model arguments;
-3. `AnalysisRequestResolver.resolve()` resolves catalogs and creates an
+2. `CategoryHealthToolAdapter` owns dictionary conversion and audit instrumentation;
+3. `AnalysisRequest` validates raw model arguments;
+4. `AnalysisRequestResolver.resolve()` resolves catalogs and creates an
    `AnalysisQuery`;
-4. `CategoryHealthService.analyze()` executes the deterministic pipeline;
-5. `create_metric_catalog_tool()` exposes metric discovery separately;
-6. the harness profile removes filesystem, shell and subagent tools.
+5. `CategoryHealthService` executes the typed deterministic pipeline;
+6. `create_metric_catalog_tool()` exposes metric discovery separately;
+7. the harness profile removes filesystem, shell and subagent tools.
 
 There is no generic registry because the application has one analysis use case.
 Adding a registry around one handler would add indirection without isolating a real

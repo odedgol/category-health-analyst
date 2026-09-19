@@ -16,6 +16,7 @@ from category_health.catalogs.catalogs import (
 from category_health.catalogs.categories import CategoryCatalog, CategoryDefinition
 from category_health.domain.models import CategorySiteMetrics
 from category_health.repositories.in_memory import InMemoryMetricsRepository
+from category_health.tool_adapter import CategoryHealthToolAdapter
 
 
 def test_deep_agent_domain_tool_runs_without_an_external_model() -> None:
@@ -51,9 +52,8 @@ def test_deep_agent_domain_tool_runs_without_an_external_model() -> None:
                 ),
             )
         ),
-        audit_sink=sink,
     )
-    tool = create_analysis_tool(service, sink)
+    tool = create_analysis_tool(CategoryHealthToolAdapter(service, sink))
 
     response = tool(
         intent="trend",
@@ -103,10 +103,9 @@ def test_metric_catalog_tool_returns_every_supported_option_and_audits_it() -> N
             (SiteDefinition(77, "Germany", "Germany", "DE", ()),)
         ),
         metric_catalog=catalog,
-        audit_sink=sink,
     )
 
-    response = create_metric_catalog_tool(service, sink)()
+    response = create_metric_catalog_tool(CategoryHealthToolAdapter(service, sink))()
 
     assert response["status"] == "ok"
     assert [metric["metric_id"] for metric in response["metrics"]] == [
@@ -124,4 +123,4 @@ def test_metric_catalog_tool_returns_every_supported_option_and_audits_it() -> N
         for event in sink.events
         if event.step == "list_available_metrics" and event.status.value == "succeeded"
     )
-    assert event.output_summary == {"metric_count": 2, "source": "metric_catalog"}
+    assert event.output_summary == {"metric_count": 2}

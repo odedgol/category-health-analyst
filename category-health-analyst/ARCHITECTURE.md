@@ -120,6 +120,7 @@ this project owns validation, resolution, retrieval and calculation.
 | `application/requests.py` | Validate arguments and resolve catalog references | Converts untrusted model output to a canonical query |
 | `application/analysis.py` | Execute the five explicit analysis branches | Keeps deterministic behavior visible in one place |
 | `application/output.py` | Define response models and atomic delta calculation | Keeps output contracts separate from orchestration |
+| `tool_adapter.py` | Convert tool dictionaries and wrap the typed flow with audit | Keeps serialization and telemetry outside business logic |
 | `domain/models.py` | Define aggregate records and date ranges | These are business data structures |
 | `domain/query.py` | Define intents and `AnalysisQuery` | Stable boundary after language interpretation |
 | `domain/ports.py` | Define `MetricsRepository` | The application depends on a port, not a database |
@@ -140,8 +141,9 @@ this project owns validation, resolution, retrieval and calculation.
 Before: tool construction, catalog resolution and deterministic execution were
 spread across the Deep Agent adapter.
 
-After: `CategoryHealthService.analyze()` owns the complete deterministic use case;
-`CategoryHealthService.list_metrics()` owns metric discovery.
+After: `CategoryHealthService.analyze()` owns the complete typed deterministic use
+case; `CategoryHealthToolAdapter` owns untrusted dictionaries, serialization and
+audit; `CategoryHealthService.list_metrics()` owns metric discovery.
 
 Why better: Streamlit, CLI, MCP, evaluation and future interfaces reuse one API.
 
@@ -206,19 +208,20 @@ What is the image coverage for Antiques in Germany?
 | 1 | `ui/app.py` | `main()` | User text | Call to session | Capture and render chat interaction |
 | 2 | `agent/session.py` | `AnalysisSession.ask()` | Question, history and today's date | Final AI message | Own turn history, trace and model invocation |
 | 3 | `agent/deep_agent.py` | Deep Agent | Natural language | Tool selection and arguments | Interpret language only |
-| 4 | `agent/deep_agent.py` | `analyze_category_health()` | `snapshot`, `Antiques`, `Germany`, `image coverage` | JSON-safe response | Adapt tool call to service API |
-| 5 | `application/service.py` | `CategoryHealthService.analyze()` | Untrusted arguments | Structured response | Orchestrate one deterministic use case |
-| 6 | `application/requests.py` | `AnalysisRequestResolver.resolve()` | `AnalysisRequest` | `AnalysisQuery` | Validate and canonicalize references |
-| 7 | `catalogs/categories.py` | `CategoryCatalog.resolve()` | `Antiques` | Category ID `20081` | Resolve category identity |
-| 8 | `catalogs/catalogs.py` | `SiteCatalog.resolve()` | `Germany` | Site ID `77` | Resolve site identity |
-| 9 | `catalogs/catalogs.py` | `MetricCatalog.resolve()` | `image coverage` | `image_coverage_percentage` | Resolve metric identity |
-| 10 | `application/analysis.py` | `CategoryHealthAnalyzer.analyze()` | `AnalysisQuery` | Selected branch | Route explicitly by intent |
-| 11 | `application/analysis.py` | `_snapshot()` | Resolved IDs and range | `AnalysisResponse` | Retrieve and expose the latest requested values |
-| 12 | `repositories/duckdb.py` | `latest_update()` | Category `20081`, site `77` | Latest aggregate row | Read through repository semantics |
-| 13 | `application/output.py` | `compare_observations()` | Two complete observations | Typed delta | Apply one atomic comparison rule |
-| 14 | `agent/deep_agent.py` | Deep Agent | Structured tool result | Natural-language answer | Present without recalculating |
-| 15 | `agent/session.py` | `AnalysisSession.ask()` | Agent messages | History and structured output | Retain follow-up and chart data |
-| 16 | `ui/app.py` | `render_charts()` | Chart specs | Streamlit chart | Present output visually |
+| 4 | `agent/deep_agent.py` | `analyze_category_health()` | `snapshot`, `Antiques`, `Germany`, `image coverage` | JSON-safe response | Delegate the selected tool |
+| 5 | `tool_adapter.py` | `CategoryHealthToolAdapter.analyze()` | Untrusted arguments | Audited JSON-safe response | Validate and serialize at the external boundary |
+| 6 | `application/service.py` | `CategoryHealthService.resolve_request()` | `AnalysisRequest` | `AnalysisQuery` | Start the clean typed business flow |
+| 7 | `application/requests.py` | `AnalysisRequestResolver.resolve()` | `AnalysisRequest` | `AnalysisQuery` | Validate and canonicalize references |
+| 8 | `catalogs/categories.py` | `CategoryCatalog.resolve()` | `Antiques` | Category ID `20081` | Resolve category identity |
+| 9 | `catalogs/catalogs.py` | `SiteCatalog.resolve()` | `Germany` | Site ID `77` | Resolve site identity |
+| 10 | `catalogs/catalogs.py` | `MetricCatalog.resolve()` | `image coverage` | `image_coverage_percentage` | Resolve metric identity |
+| 11 | `application/analysis.py` | `CategoryHealthAnalyzer.analyze()` | `AnalysisQuery` | Selected branch | Route explicitly by intent |
+| 12 | `application/analysis.py` | `_snapshot()` | Resolved IDs and range | `AnalysisResponse` | Retrieve and expose the latest requested values |
+| 13 | `repositories/duckdb.py` | `latest_update()` | Category `20081`, site `77` | Latest aggregate row | Read through repository semantics |
+| 14 | `application/output.py` | `compare_observations()` | Two complete observations | Typed delta | Apply one atomic comparison rule |
+| 15 | `agent/deep_agent.py` | Deep Agent | Structured tool result | Natural-language answer | Present without recalculating |
+| 16 | `agent/session.py` | `AnalysisSession.ask()` | Agent messages | History and structured output | Retain follow-up and chart data |
+| 17 | `ui/app.py` | `render_charts()` | Chart specs | Streamlit chart | Present output visually |
 
 For trend and comparison requests, the selected analysis branch also reads daily records, applies
 latest-LMD semantics, pair comparable observations and calculate deltas. The LLM
@@ -270,7 +273,8 @@ Langfuse are replaceable infrastructure assembled in one bootstrap.
 The system separates interpretation from truth. The LLM understands phrasing,
 chooses between discovery and analysis, extracts scope and presents the response.
 It cannot query arbitrary SQL or calculate deltas. Its arguments enter
-`CategoryHealthService`, where Pydantic validation and static catalogs convert
+`CategoryHealthToolAdapter`, where Pydantic validates the external dictionary. The
+typed request then enters `CategoryHealthService`, where static catalogs convert
 names into canonical IDs. `AnalysisQuery` is the stable intermediate form.
 `CategoryHealthAnalyzer.analyze()` maps it directly to one of five explicit methods and executes
 through `MetricsRepository`. The DuckDB adapter applies latest-LMD selection. The

@@ -11,12 +11,21 @@ from deepagents import (
 )
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from category_health.application.service import CategoryHealthService
-from category_health.audit import AuditSink, AuditTrail, current_audit
 from category_health.domain.query import QueryIntent
+from category_health.tool_adapter import CategoryHealthToolAdapter
 
 _BUILT_IN_TOOLS = frozenset(
-    {"ls", "read_file", "write_file", "edit_file", "delete", "glob", "grep", "execute", "task"}
+    {
+        "ls",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "delete",
+        "glob",
+        "grep",
+        "execute",
+        "task",
+    }
 )
 
 _SYSTEM_PROMPT = (
@@ -64,8 +73,7 @@ _SYSTEM_PROMPT = (
 
 
 def create_analysis_tool(
-    service: CategoryHealthService,
-    audit_sink: AuditSink,
+    tool_adapter: CategoryHealthToolAdapter,
 ) -> Callable[..., dict[str, Any]]:
     """Expose one application use case as a Deep Agents tool."""
 
@@ -79,11 +87,13 @@ def create_analysis_tool(
         category: str,
         sites: Annotated[
             list[str],
-            "Only requested sites. For 'A minus B', use [B, A] because the tool computes second minus first.",
+            "Only requested sites. For 'A minus B', use [B, A] because the "
+            "tool computes second minus first.",
         ],
         metrics: Annotated[
             list[str],
-            "Only metrics explicitly requested by the user. Never add other catalog metrics unless the user asks for all metrics.",
+            "Only metrics explicitly requested by the user. Never add other "
+            "catalog metrics unless the user asks for all metrics.",
         ],
         start_date: str | None = None,
         end_date: str | None = None,
@@ -92,8 +102,7 @@ def create_analysis_tool(
     ) -> dict[str, Any]:
         """Analyze complete category/site metric rows for the requested scope."""
 
-        audit = current_audit.get() or AuditTrail(audit_sink)
-        return service.analyze_arguments(
+        return tool_adapter.analyze(
             {
                 "intent": intent,
                 "category": category,
@@ -104,23 +113,20 @@ def create_analysis_tool(
                 "comparison_start_date": comparison_start_date,
                 "comparison_end_date": comparison_end_date,
             },
-            audit=audit,
         )
 
     return analyze_category_health
 
 
 def create_metric_catalog_tool(
-    service: CategoryHealthService,
-    audit_sink: AuditSink,
+    tool_adapter: CategoryHealthToolAdapter,
 ) -> Callable[..., dict[str, Any]]:
     """Expose application metric discovery as a Deep Agents tool."""
 
     def list_available_metrics() -> dict[str, Any]:
         """List all supported metric names, IDs, units, and accepted aliases."""
 
-        audit = current_audit.get() or AuditTrail(audit_sink)
-        return service.list_metrics(audit=audit)
+        return tool_adapter.list_metrics()
 
     return list_available_metrics
 
@@ -128,8 +134,7 @@ def create_metric_catalog_tool(
 def create_category_health_deep_agent(
     *,
     model: str | BaseChatModel,
-    service: CategoryHealthService,
-    audit_sink: AuditSink,
+    tool_adapter: CategoryHealthToolAdapter,
     harness_profile_key: str | None = None,
 ):
     """Expose an assembled application service through Deep Agents."""
@@ -144,8 +149,8 @@ def create_category_health_deep_agent(
             general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False),
         ),
     )
-    analysis_tool = create_analysis_tool(service, audit_sink)
-    metric_catalog_tool = create_metric_catalog_tool(service, audit_sink)
+    analysis_tool = create_analysis_tool(tool_adapter)
+    metric_catalog_tool = create_metric_catalog_tool(tool_adapter)
     return create_deep_agent(
         model=model,
         tools=[analysis_tool, metric_catalog_tool],

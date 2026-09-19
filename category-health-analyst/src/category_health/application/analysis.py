@@ -9,7 +9,6 @@ from category_health.application.output import (
     compare_observations,
     validate_metric_ids,
 )
-from category_health.audit import AuditTrail
 from category_health.domain.models import CategorySiteMetrics, DateRange
 from category_health.domain.ports import MetricsRepository
 from category_health.domain.query import AnalysisQuery, QueryIntent
@@ -26,34 +25,25 @@ class CategoryHealthAnalyzer:
     def analyze(
         self,
         query: AnalysisQuery,
-        audit: AuditTrail,
     ) -> AnalysisResponse:
         """Choose the requested analysis and return its complete response."""
 
         validate_metric_ids(query.metric_ids)
-        with audit.step(f"execute_{query.intent.value}", input_object=query) as step:
-            match query.intent:
-                case QueryIntent.SNAPSHOT:
-                    response = self._snapshot(query, audit)
-                case QueryIntent.TREND:
-                    response = self._trend(query, audit)
-                case QueryIntent.COMPARE_PERIODS:
-                    response = self._compare_periods(query, audit)
-                case QueryIntent.COMPARE_SITES:
-                    response = self._compare_sites(query, audit)
-                case QueryIntent.EXPLAIN_CHANGE:
-                    response = self._explain_change(query, audit)
-
-            step.set_output(self._response_summary(response))
-        with audit.step("calculate_and_project", input_object=query) as step:
-            step.set_output(self._response_summary(response))
-            step.set_output_object(response)
-        return response
+        match query.intent:
+            case QueryIntent.SNAPSHOT:
+                return self._snapshot(query)
+            case QueryIntent.TREND:
+                return self._trend(query)
+            case QueryIntent.COMPARE_PERIODS:
+                return self._compare_periods(query)
+            case QueryIntent.COMPARE_SITES:
+                return self._compare_sites(query)
+            case QueryIntent.EXPLAIN_CHANGE:
+                return self._explain_change(query)
 
     def _snapshot(
         self,
         query: AnalysisQuery,
-        audit: AuditTrail,
     ) -> AnalysisResponse:
         values: list[ExposedMetricValue] = []
         warnings: list[str] = []
@@ -65,12 +55,11 @@ class CategoryHealthAnalyzer:
                 continue
             values.extend(self._metric_values(observation, "snapshot", query.metric_ids))
 
-        return self._response(query, audit, values, [], warnings)
+        return self._response(query, values, [], warnings)
 
     def _trend(
         self,
         query: AnalysisQuery,
-        audit: AuditTrail,
     ) -> AnalysisResponse:
         assert query.date_range is not None
         values: list[ExposedMetricValue] = []
@@ -86,12 +75,11 @@ class CategoryHealthAnalyzer:
                 for previous, current in pairwise(rows)
             )
 
-        return self._response(query, audit, values, pairs, warnings)
+        return self._response(query, values, pairs, warnings)
 
     def _explain_change(
         self,
         query: AnalysisQuery,
-        audit: AuditTrail,
     ) -> AnalysisResponse:
         assert query.date_range is not None
         values: list[ExposedMetricValue] = []
@@ -106,12 +94,11 @@ class CategoryHealthAnalyzer:
                 pairs.append((rows[0], rows[-1], "first_to_last_observation"))
 
         warnings.append("Observed metric changes do not establish causes.")
-        return self._response(query, audit, values, pairs, warnings)
+        return self._response(query, values, pairs, warnings)
 
     def _compare_periods(
         self,
         query: AnalysisQuery,
-        audit: AuditTrail,
     ) -> AnalysisResponse:
         assert query.date_range is not None
         assert query.comparison_range is not None
@@ -151,12 +138,11 @@ class CategoryHealthAnalyzer:
             else:
                 warnings.append(f"Site {site_id}: both periods need data for comparison.")
 
-        return self._response(query, audit, values, pairs, warnings)
+        return self._response(query, values, pairs, warnings)
 
     def _compare_sites(
         self,
         query: AnalysisQuery,
-        audit: AuditTrail,
     ) -> AnalysisResponse:
         first_site, second_site = query.site_ids
         first_rows = self._site_comparison_rows(query, first_site)
@@ -209,7 +195,7 @@ class CategoryHealthAnalyzer:
                 "Site comparison uses matching dates only; unmatched dates are omitted."
             )
 
-        return self._response(query, audit, values, pairs, warnings)
+        return self._response(query, values, pairs, warnings)
 
     def _site_comparison_rows(
         self,
@@ -330,7 +316,6 @@ class CategoryHealthAnalyzer:
     @staticmethod
     def _response(
         query: AnalysisQuery,
-        audit: AuditTrail,
         values: list[ExposedMetricValue],
         pairs: list[ObservationPair],
         warnings: list[str],
@@ -342,7 +327,6 @@ class CategoryHealthAnalyzer:
         )
         unique_warnings = tuple(dict.fromkeys(warnings))
         return AnalysisResponse(
-            trace_id=audit.trace_id,
             intent=query.intent.value,
             category_id=query.category_id,
             status="no_data" if not values else "partial" if unique_warnings else "ok",
@@ -350,12 +334,3 @@ class CategoryHealthAnalyzer:
             comparisons=comparisons,
             warnings=unique_warnings,
         )
-
-    @staticmethod
-    def _response_summary(response: AnalysisResponse) -> dict[str, int | str]:
-        return {
-            "status": response.status,
-            "value_count": len(response.values),
-            "comparison_count": len(response.comparisons),
-            "warning_count": len(response.warnings),
-        }

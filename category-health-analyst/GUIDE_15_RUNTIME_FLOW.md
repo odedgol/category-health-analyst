@@ -10,6 +10,7 @@ ui/app.py: main
   -> bootstrap.py: ConversationRuntime
   -> agent/session.py: AnalysisSession.ask
   -> agent/deep_agent.py: analyze_category_health tool
+  -> tool_adapter.py: CategoryHealthToolAdapter.analyze
   -> application/service.py: CategoryHealthService.analyze
   -> application/requests.py: AnalysisRequestResolver.resolve
   -> application/analysis.py: CategoryHealthAnalyzer.analyze
@@ -28,7 +29,8 @@ ui/app.py: main
 ```text
 mcp_server.py: analyze_category_health
   -> mcp_runtime.py: CategoryHealthMcpRuntime.analyze
-  -> application/service.py: CategoryHealthService.analyze
+  -> tool_adapter.py: CategoryHealthToolAdapter.analyze
+  -> application/service.py: typed resolve and analysis methods
   -> the same deterministic pipeline
   -> structured MCP response
 ```

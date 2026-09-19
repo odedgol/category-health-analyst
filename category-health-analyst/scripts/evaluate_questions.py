@@ -58,15 +58,14 @@ def run_suite(
     sink = runtime.audit_sink
 
     def analyze(**arguments):
-        return runtime.service.analyze_arguments(arguments)
+        return runtime.tool_adapter.analyze(arguments)
 
     graph = None
     if live:
         graph = create_category_health_deep_agent(
             model=build_agent_model(settings),
             harness_profile_key=settings.harness_profile_key,
-            service=runtime.service,
-            audit_sink=sink,
+            tool_adapter=runtime.tool_adapter,
         )
     report = {
         "mode": "live" if live else "offline_fixture_check",
@@ -118,7 +117,7 @@ def run_suite(
                     elif turn.get("clarification"):
                         item.update(status="skipped", reason="Requires language interpretation.")
                     elif turn.get("catalog"):
-                        result = runtime.service.list_metrics()
+                        result = runtime.tool_adapter.list_metrics()
                         item["trace_id"] = result["trace_id"]
                     else:
                         query = turn["query"]
