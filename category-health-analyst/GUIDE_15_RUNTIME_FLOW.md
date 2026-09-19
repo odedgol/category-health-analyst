@@ -9,7 +9,8 @@ The complete current architecture and interview walkthrough are documented in
 ui/app.py: main
   -> bootstrap.py: ConversationRuntime
   -> agent/session.py: AnalysisSession.ask
-  -> agent/deep_agent.py: analyze_category_health tool
+  -> agent/deep_agent.py: assembled language interpreter
+  -> agent/tools.py: analyze_category_health tool
   -> tool_adapter.py: CategoryHealthToolAdapter.analyze
   -> application/service.py: CategoryHealthService.analyze
   -> application/requests.py: AnalysisRequestResolver.resolve

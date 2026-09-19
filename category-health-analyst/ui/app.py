@@ -19,7 +19,7 @@ from category_health.model_provider import (
 )
 
 PROJECT_ROOT = Path(__file__).parents[1]
-RUNTIME_VERSION = 11
+RUNTIME_VERSION = 12
 
 load_local_environment(PROJECT_ROOT / ".env")
 

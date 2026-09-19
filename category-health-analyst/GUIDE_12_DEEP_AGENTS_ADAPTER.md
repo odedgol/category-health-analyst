@@ -36,6 +36,13 @@ Deep Agents includes filesystem, shell, and subagent capabilities by default. Th
 The adapter registers a harness profile that excludes those built-in tools. It
 exposes only two closed domain capabilities: analysis and metric discovery.
 
+The adapter is split by responsibility:
+
+- `agent/deep_agent.py` assembles the framework;
+- `agent/tools.py` defines the two tool schemas;
+- `agent/prompt.py` contains the model behavior contract;
+- `agent/session.py` owns conversation history and one trace per user turn.
+
 This follows the framework's security principle: enforce boundaries in the available tools, not by asking the model to police itself.
 
 ## What the domain tools do
@@ -45,7 +52,7 @@ The single analysis tool, `analyze_category_health`:
 1. validates the model-generated arguments;
 2. resolves catalogs;
 3. creates an `AnalysisQuery`;
-4. runs the deterministic agent;
+4. runs the deterministic analyzer;
 5. projects the complete result into the requested output;
 6. returns JSON-safe data.
 

@@ -7,10 +7,10 @@ from zoneinfo import ZoneInfo
 
 from langchain_core.messages import ToolMessage
 
-from category_health.audit import AuditSink, AuditTrail
+from category_health.audit import AuditSink, AuditTrail, StepAuditContext
 
 
-def _latest_analysis_output(messages: list[object]) -> dict[str, Any] | None:
+def find_latest_analysis_result(messages: list[object]) -> dict[str, Any] | None:
     """Return the latest structured analysis tool result from model messages."""
 
     for message in reversed(messages):
@@ -57,8 +57,7 @@ class AnalysisSession:
     def ask(self, question: str):
         """Run one audited conversation turn and commit successful history."""
 
-        if not question.strip():
-            raise ValueError("Please enter a question.")
+        question = self._validate_question(question)
         self.last_analysis_output = None
         audit = self._start_turn_audit()
         today = self._today()
@@ -69,24 +68,38 @@ class AnalysisSession:
                 input_summary={"question_length": len(question), "today": today},
                 input_object={"question": question, "today": today},
             ) as request_step:
-                result = self.agent.invoke(
-                    {"messages": self._messages_for_turn(question, today)},
-                    config=self._invocation_config(),
-                )
-                answer = result["messages"][-1]
-                self._audit_model_result(audit, result["messages"], answer.content)
-                request_step.set_output(
-                    {
-                        "status": "ok",
-                        "answer_length": len(str(answer.content)),
-                    }
-                )
-                request_step.set_output_object(
-                    {"status": "ok", "answer": answer.content}
-                )
-                self.messages = result["messages"]
-                self.last_analysis_output = _latest_analysis_output(self.messages)
-                return answer
+                messages = self._invoke_agent(question, today)
+                return self._complete_turn(messages, audit, request_step)
+
+    @staticmethod
+    def _validate_question(question: str) -> str:
+        question = question.strip()
+        if not question:
+            raise ValueError("Please enter a question.")
+        return question
+
+    def _invoke_agent(self, question: str, today: str) -> list[object]:
+        result = self.agent.invoke(
+            {"messages": self._messages_for_turn(question, today)},
+            config=self._invocation_config(),
+        )
+        return result["messages"]
+
+    def _complete_turn(
+        self,
+        messages: list[object],
+        audit: AuditTrail,
+        request_step: StepAuditContext,
+    ):
+        answer = messages[-1]
+        self._audit_model_result(audit, messages, answer.content)
+        request_step.set_output(
+            {"status": "ok", "answer_length": len(str(answer.content))}
+        )
+        request_step.set_output_object({"status": "ok", "answer": answer.content})
+        self.messages = messages
+        self.last_analysis_output = find_latest_analysis_result(messages)
+        return answer
 
     def _start_turn_audit(self) -> AuditTrail:
         audit = AuditTrail(

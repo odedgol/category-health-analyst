@@ -58,7 +58,7 @@ semantics, warnings and comparison direction.
 │ Interface adapters                                           │
 │ AnalysisSession + Deep Agent      CategoryHealthMcpRuntime    │
 │ agent/session.py                  mcp_runtime.py               │
-│ agent/deep_agent.py                                           │
+│ agent/deep_agent.py + agent/tools.py                          │
 └───────────────────────────┬──────────────────────────────────┘
                             v
 ┌──────────────────────────────────────────────────────────────┐
@@ -89,7 +89,8 @@ There are two valid entry paths:
 
 ```text
 User -> Streamlit/CLI -> AnalysisSession -> Deep Agent -> domain tool
-     -> CategoryHealthService -> deterministic result -> Deep Agent presentation
+     -> CategoryHealthToolAdapter -> CategoryHealthService
+     -> deterministic result -> Deep Agent presentation
      -> User
 ```
 
@@ -115,7 +116,9 @@ this project owns validation, resolution, retrieval and calculation.
 | `mcp_runtime.py` | Add MCP audit context and call application use cases | Isolates request semantics from protocol declarations |
 | `bootstrap.py` | Construct concrete local/demo dependencies | Composition roots may know infrastructure choices |
 | `agent/session.py` | Own conversation history and one trace per turn | Conversation state belongs at the LLM boundary |
-| `agent/deep_agent.py` | Expose application use cases as two Deep Agent tools | Framework-specific orchestration stays at the edge |
+| `agent/deep_agent.py` | Assemble Deep Agents with the approved tools and model | Framework construction stays in one small module |
+| `agent/tools.py` | Define the two model-facing domain tool schemas | Tool contracts are separate from framework assembly |
+| `agent/prompt.py` | Define the LLM interpretation and presentation policy | Prompt behavior can be read without infrastructure code |
 | `application/service.py` | Provide the deterministic application entry point | One place answers “where does an analysis request enter?” |
 | `application/requests.py` | Validate arguments and resolve catalog references | Converts untrusted model output to a canonical query |
 | `application/analysis.py` | Execute the five explicit analysis branches | Keeps deterministic behavior visible in one place |
@@ -208,7 +211,7 @@ What is the image coverage for Antiques in Germany?
 | 1 | `ui/app.py` | `main()` | User text | Call to session | Capture and render chat interaction |
 | 2 | `agent/session.py` | `AnalysisSession.ask()` | Question, history and today's date | Final AI message | Own turn history, trace and model invocation |
 | 3 | `agent/deep_agent.py` | Deep Agent | Natural language | Tool selection and arguments | Interpret language only |
-| 4 | `agent/deep_agent.py` | `analyze_category_health()` | `snapshot`, `Antiques`, `Germany`, `image coverage` | JSON-safe response | Delegate the selected tool |
+| 4 | `agent/tools.py` | `analyze_category_health()` | `snapshot`, `Antiques`, `Germany`, `image coverage` | JSON-safe response | Delegate the selected tool |
 | 5 | `tool_adapter.py` | `CategoryHealthToolAdapter.analyze()` | Untrusted arguments | Audited JSON-safe response | Validate and serialize at the external boundary |
 | 6 | `application/service.py` | `CategoryHealthService.resolve_request()` | `AnalysisRequest` | `AnalysisQuery` | Start the clean typed business flow |
 | 7 | `application/requests.py` | `AnalysisRequestResolver.resolve()` | `AnalysisRequest` | `AnalysisQuery` | Validate and canonicalize references |
