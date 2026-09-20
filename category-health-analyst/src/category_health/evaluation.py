@@ -45,6 +45,36 @@ def build_provider_comparison(reports: list[dict]) -> dict:
         raise ValueError("Exactly two reports are required for an A/B comparison.")
     labels = _comparison_labels(reports)
     arms = dict(zip(labels, reports, strict=True))
+    turns = _comparison_turns(reports, arms)
+    summary = _comparison_summary(arms)
+    comparison = {
+        "experiment": (
+            "provider_comparison"
+            if len(set(report["provider"] for report in reports)) == 2
+            else "model_comparison"
+        ),
+        "baseline": labels[0],
+        "candidate": labels[1],
+        "summary": summary,
+        "agreement_rate": (
+            sum(row["agreement"] for row in turns) / len(turns) if turns else None
+        ),
+        "turns": turns,
+        "interpretation": (
+            "Pass/fail is based on structured audit evidence. Final-answer wording "
+            "still requires human review."
+        ),
+    }
+    comparison["candidate_vs_baseline"] = _candidate_result(
+        summary[labels[0]],
+        summary[labels[1]],
+    )
+    return comparison
+
+
+def _comparison_turns(reports: list[dict], arms: dict[str, dict]) -> list[dict]:
+    """Align scenario turns and record whether both arms agree."""
+
     all_keys = sorted(
         {
             _scenario_turn_id(turn)
@@ -75,6 +105,11 @@ def build_provider_comparison(reports: list[dict]) -> dict:
         statuses = [value["status"] for value in row["providers"].values()]
         row["agreement"] = len(set(statuses)) == 1
         turns.append(row)
+    return turns
+
+
+def _comparison_summary(arms: dict[str, dict]) -> dict[str, dict]:
+    """Summarize pass rate, duration and usage for each experiment arm."""
 
     summary = {}
     for label, report in arms.items():
@@ -88,30 +123,16 @@ def build_provider_comparison(reports: list[dict]) -> dict:
             "duration_seconds": report["duration_seconds"],
             "usage": report.get("usage", {}),
         }
-    comparison = {
-        "experiment": (
-            "provider_comparison"
-            if len(set(report["provider"] for report in reports)) == 2
-            else "model_comparison"
-        ),
-        "baseline": labels[0],
-        "candidate": labels[1],
-        "summary": summary,
-        "agreement_rate": (
-            sum(row["agreement"] for row in turns) / len(turns) if turns else None
-        ),
-        "turns": turns,
-        "interpretation": (
-            "Pass/fail is based on structured audit evidence. Final-answer wording "
-            "still requires human review."
-        ),
-    }
-    baseline = summary[labels[0]]
-    candidate = summary[labels[1]]
+    return summary
+
+
+def _candidate_result(baseline: dict, candidate: dict) -> dict:
+    """Calculate candidate deltas only when both experiment arms are valid."""
+
     valid = not baseline["counts"].get("error") and not candidate["counts"].get(
         "error"
     )
-    comparison["candidate_vs_baseline"] = {
+    return {
         "valid": valid,
         "reason": None if valid else "At least one comparison arm had a runtime error.",
         "pass_rate_delta": (
@@ -128,7 +149,6 @@ def build_provider_comparison(reports: list[dict]) -> dict:
             else None
         ),
     }
-    return comparison
 
 
 def values_are_equivalent(actual, expected) -> bool:

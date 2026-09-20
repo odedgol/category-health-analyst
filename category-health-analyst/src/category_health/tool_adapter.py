@@ -5,7 +5,10 @@ from typing import Any
 from pydantic import ValidationError
 
 from category_health.application.requests import AnalysisRequest, ToolResolutionError
-from category_health.application.service import CategoryHealthService
+from category_health.application.service import (
+    CategoryHealthService,
+    ClarificationResponse,
+)
 from category_health.audit import AuditSink, AuditTrail, current_audit
 
 
@@ -73,7 +76,7 @@ class CategoryHealthToolAdapter:
 
     def _record_clarification(
         self,
-        response: Any,
+        response: ClarificationResponse,
         audit: AuditTrail,
     ) -> dict[str, Any]:
         result = response.model_dump(mode="json", exclude_none=True)

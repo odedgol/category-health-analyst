@@ -63,6 +63,37 @@ class ConversationRuntime:
     trace_name: str
     trace_tags: tuple[str, ...]
 
+    @classmethod
+    def create(
+        cls,
+        *,
+        application: CategoryHealthRuntime,
+        model_settings: ModelSettings,
+        agent: Any,
+        source: str,
+        session_id: str | None = None,
+    ) -> "ConversationRuntime":
+        """Create one conversation and its trace identity."""
+
+        conversation_id = session_id or str(uuid4())
+        trace_name = f"category-health-{source}-request"
+        trace_tags = ("category-health", source, "mock-data")
+        return cls(
+            application=application,
+            model_settings=model_settings,
+            agent=agent,
+            analysis_session=AnalysisSession(
+                agent,
+                application.audit_sink,
+                session_id=conversation_id,
+                trace_name=trace_name,
+                trace_tags=trace_tags,
+            ),
+            session_id=conversation_id,
+            trace_name=trace_name,
+            trace_tags=trace_tags,
+        )
+
     @property
     def audit_sink(self) -> CompositeAuditSink:
         return self.application.audit_sink
@@ -161,21 +192,10 @@ def create_demo_conversation_runtime(
         harness_profile_key=settings.harness_profile_key,
         tool_adapter=application.tool_adapter,
     )
-    conversation_id = session_id or str(uuid4())
-    trace_name = f"category-health-{source}-request"
-    trace_tags = ("category-health", source, "mock-data")
-    return ConversationRuntime(
+    return ConversationRuntime.create(
         application=application,
         model_settings=settings,
         agent=agent,
-        analysis_session=AnalysisSession(
-            agent,
-            application.audit_sink,
-            session_id=conversation_id,
-            trace_name=trace_name,
-            trace_tags=trace_tags,
-        ),
-        session_id=conversation_id,
-        trace_name=trace_name,
-        trace_tags=trace_tags,
+        source=source,
+        session_id=session_id,
     )

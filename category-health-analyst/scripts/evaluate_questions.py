@@ -39,6 +39,118 @@ def _message_usage(messages: list) -> dict[str, int]:
     }
 
 
+def _new_report(suite: dict, settings: ModelSettings | None) -> dict:
+    """Create report metadata before any scenario executes."""
+
+    return {
+        "mode": "live" if settings else "offline_fixture_check",
+        "provider": settings.provider.value if settings else "offline",
+        "model": settings.model if settings else None,
+        "base_url": settings.base_url if settings else None,
+        "today": suite["today"],
+        "turns": [],
+        "answer_review": (
+            "Known unsupported wording is checked automatically; remaining wording "
+            "requires human review."
+        ),
+    }
+
+
+def _save_report(report: dict, run_dir: Path, started: float) -> None:
+    """Refresh aggregate fields and persist the current report."""
+
+    report["counts"] = dict(Counter(turn["status"] for turn in report["turns"]))
+    report["usage"] = {
+        key: sum((turn.get("usage") or {}).get(key, 0) for turn in report["turns"])
+        for key in ("input_tokens", "output_tokens", "total_tokens")
+    }
+    report["duration_seconds"] = round(perf_counter() - started, 4)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "report.json").write_text(
+        json.dumps(report, indent=2, default=str), encoding="utf-8"
+    )
+
+
+def _offline_tool_call(turn: dict, runtime) -> dict:
+    """Execute one expected structured call without language interpretation."""
+
+    if turn.get("catalog"):
+        return runtime.tool_adapter.list_metrics()
+
+    query = turn["query"]
+    date_range = query["date_range"] or {}
+    comparison_range = query["comparison_range"] or {}
+    return runtime.tool_adapter.analyze(
+        {
+            "intent": query["intent"],
+            "category": str(query["category_id"]),
+            "sites": [str(site) for site in query["site_ids"]],
+            "metrics": query["metric_ids"],
+            "start_date": date_range.get("start"),
+            "end_date": date_range.get("end"),
+            "comparison_start_date": comparison_range.get("start"),
+            "comparison_end_date": comparison_range.get("end"),
+        }
+    )
+
+
+def _execute_turn(turn: dict, session: AnalysisSession, runtime, live: bool) -> dict:
+    """Run either the language path or the deterministic fixture path."""
+
+    if live:
+        message_start = len(session.messages)
+        answer = session.ask(turn["question"])
+        return {
+            "answer": answer.content,
+            "usage": _message_usage(session.messages[message_start:]),
+            "trace_id": str(session.last_trace_id),
+        }
+    if turn.get("clarification"):
+        return {
+            "status": "skipped",
+            "reason": "Requires language interpretation.",
+        }
+    result = _offline_tool_call(turn, runtime)
+    return {"trace_id": result["trace_id"]}
+
+
+def _evaluate_turn(
+    *,
+    case_id: str,
+    turn_number: int,
+    turn: dict,
+    session: AnalysisSession,
+    runtime,
+    live: bool,
+) -> dict:
+    """Execute and score one scenario turn without managing suite lifecycle."""
+
+    sink = runtime.audit_sink
+    event_start = len(sink.events)
+    started = perf_counter()
+    item = {
+        "case": case_id,
+        "turn": turn_number,
+        "question": turn["question"],
+        "expected": turn,
+    }
+    try:
+        item.update(_execute_turn(turn, session, runtime, live))
+        if item.get("status") != "skipped":
+            item.update(evaluate_turn_from_audit(turn, sink.events[event_start:]))
+            if live and isinstance(item.get("answer"), str):
+                wording_failures = find_unsupported_answer_claims(item["answer"])
+                item["wording_failures"] = wording_failures
+                if wording_failures and item["status"] == "pass":
+                    item["status"] = "needs_review"
+    except Exception as error:
+        item.update(status="error", error_type=type(error).__name__)
+        if live:
+            item["trace_id"] = str(session.last_trace_id)
+    item["duration_seconds"] = round(perf_counter() - started, 4)
+    return item
+
+
 def run_suite(
     *,
     root: Path,
@@ -55,11 +167,6 @@ def run_suite(
         audit_path=run_dir / "events.jsonl",
         audit_environment=None if live else {},
     )
-    sink = runtime.audit_sink
-
-    def analyze(**arguments):
-        return runtime.tool_adapter.analyze(arguments)
-
     graph = None
     if live:
         graph = create_category_health_deep_agent(
@@ -67,91 +174,27 @@ def run_suite(
             harness_profile_key=settings.harness_profile_key,
             tool_adapter=runtime.tool_adapter,
         )
-    report = {
-        "mode": "live" if live else "offline_fixture_check",
-        "provider": settings.provider.value if settings else "offline",
-        "model": settings.model if settings else None,
-        "base_url": settings.base_url if settings else None,
-        "today": suite["today"],
-        "turns": [],
-        "answer_review": (
-            "Known unsupported wording is checked automatically; remaining wording "
-            "requires human review."
-        ),
-    }
+    report = _new_report(suite, settings)
     started = perf_counter()
-
-    def save() -> None:
-        report["counts"] = dict(Counter(turn["status"] for turn in report["turns"]))
-        report["usage"] = {
-            key: sum(
-                (turn.get("usage") or {}).get(key, 0) for turn in report["turns"]
-            )
-            for key in ("input_tokens", "output_tokens", "total_tokens")
-        }
-        report["duration_seconds"] = round(perf_counter() - started, 4)
-        run_dir.mkdir(parents=True, exist_ok=True)
-        (run_dir / "report.json").write_text(
-            json.dumps(report, indent=2, default=str), encoding="utf-8"
-        )
 
     try:
         for case in cases:
-            session = AnalysisSession(graph, sink, today=date.fromisoformat(suite["today"]))
+            session = AnalysisSession(
+                graph,
+                runtime.audit_sink,
+                today=date.fromisoformat(suite["today"]),
+            )
             for index, turn in enumerate(case["turns"], 1):
-                event_start = len(sink.events)
-                turn_started = perf_counter()
-                item = {
-                    "case": case["id"],
-                    "turn": index,
-                    "question": turn["question"],
-                    "expected": turn,
-                }
-                try:
-                    if live:
-                        message_start = len(session.messages)
-                        answer = session.ask(turn["question"])
-                        item["answer"] = answer.content
-                        item["usage"] = _message_usage(session.messages[message_start:])
-                        item["trace_id"] = str(session.last_trace_id)
-                    elif turn.get("clarification"):
-                        item.update(status="skipped", reason="Requires language interpretation.")
-                    elif turn.get("catalog"):
-                        result = runtime.tool_adapter.list_metrics()
-                        item["trace_id"] = result["trace_id"]
-                    else:
-                        query = turn["query"]
-                        scope = query["date_range"] or {}
-                        comparison = query["comparison_range"] or {}
-                        result = analyze(
-                            intent=query["intent"],
-                            category=str(query["category_id"]),
-                            sites=[str(site) for site in query["site_ids"]],
-                            metrics=query["metric_ids"],
-                            start_date=scope.get("start"),
-                            end_date=scope.get("end"),
-                            comparison_start_date=comparison.get("start"),
-                            comparison_end_date=comparison.get("end"),
-                        )
-                        item["trace_id"] = result["trace_id"]
-                    if item.get("status") != "skipped":
-                        item.update(
-                            evaluate_turn_from_audit(turn, sink.events[event_start:])
-                        )
-                        if live and isinstance(item.get("answer"), str):
-                            wording_failures = find_unsupported_answer_claims(
-                                item["answer"]
-                            )
-                            item["wording_failures"] = wording_failures
-                            if wording_failures and item["status"] == "pass":
-                                item["status"] = "needs_review"
-                except Exception as error:
-                    item.update(status="error", error_type=type(error).__name__)
-                    if live:
-                        item["trace_id"] = str(session.last_trace_id)
-                item["duration_seconds"] = round(perf_counter() - turn_started, 4)
+                item = _evaluate_turn(
+                    case_id=case["id"],
+                    turn_number=index,
+                    turn=turn,
+                    session=session,
+                    runtime=runtime,
+                    live=live,
+                )
                 report["turns"].append(item)
-                save()
+                _save_report(report, run_dir, started)
                 print(
                     f"{report['provider']} / {case['id']} / turn {index}: "
                     f"{item['status']} ({item['duration_seconds']:.2f}s)"
@@ -159,7 +202,7 @@ def run_suite(
                 if item["status"] == "error":
                     break
     finally:
-        save()
+        _save_report(report, run_dir, started)
         runtime.close()
     return report
 

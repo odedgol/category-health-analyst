@@ -102,14 +102,16 @@ def create_mcp_server(
         """Analyze category health using audited, deterministic repository calculations."""
 
         return runtime_provider.get().analyze(
-            intent=intent,
-            category=category,
-            sites=sites,
-            metrics=metrics,
-            start_date=start_date,
-            end_date=end_date,
-            comparison_start_date=comparison_start_date,
-            comparison_end_date=comparison_end_date,
+            {
+                "intent": intent,
+                "category": category,
+                "sites": sites,
+                "metrics": metrics,
+                "start_date": start_date,
+                "end_date": end_date,
+                "comparison_start_date": comparison_start_date,
+                "comparison_end_date": comparison_end_date,
+            }
         )
 
     server.category_health_runtime_provider = runtime_provider

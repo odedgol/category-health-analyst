@@ -111,9 +111,10 @@ this project owns validation, resolution, retrieval and calculation.
 
 | File | Responsibility | Why it belongs there |
 |---|---|---|
-| `ui/app.py` | Render chat, charts and trace summaries | Streamlit is an interface concern |
+| `ui/app.py` | Own Streamlit runtime state and the chat interaction | The entry point now reads as the UI flow |
+| `ui/presentation.py` | Render answers, charts and trace details | Streamlit presentation is isolated from orchestration |
 | `mcp_server.py` | Define MCP tools and protocol schemas | It is a thin protocol adapter |
-| `mcp_runtime.py` | Add MCP audit context and call application use cases | Isolates request semantics from protocol declarations |
+| `mcp_runtime.py` | Add MCP audit context and submit one argument object | Isolates request lifecycle from protocol declarations |
 | `bootstrap.py` | Construct concrete local/demo dependencies | Composition roots may know infrastructure choices |
 | `agent/session.py` | Own conversation history and one trace per turn | Conversation state belongs at the LLM boundary |
 | `agent/deep_agent.py` | Assemble Deep Agents with the approved tools and model | Framework construction stays in one small module |
@@ -136,6 +137,20 @@ this project owns validation, resolution, retrieval and calculation.
 | `observability.py` | Persist JSONL and optionally export to Langfuse | Telemetry integration stays outside business logic |
 | `charts.py` | Convert structured results to chart specs | Deterministic presentation transformation |
 | `evaluation.py` | Score model behavior against expected results | Evaluation is a development boundary |
+
+## 3.1 Complete flow inventory
+
+The project has eight explicit flows. None uses audit as application state:
+
+1. **Analysis:** `AnalysisRequest → AnalysisQuery → AnalysisResponse`.
+2. **Conversation:** `AnalysisSession → Deep Agent → domain tool → final answer`.
+3. **Metric discovery:** `list_available_metrics → MetricCatalogResponse`.
+4. **Clarification:** invalid or ambiguous request → typed clarification; no query runs.
+5. **MCP:** protocol schema → `CategoryHealthMcpRuntime` → shared tool adapter.
+6. **Streamlit:** session runtime → answer → deterministic chart specs → trace display.
+7. **Evaluation:** scenario turn → audited evidence → score → persisted report.
+8. **Bootstrap/observability:** composition root creates replaceable infrastructure;
+   JSONL remains authoritative and Langfuse remains optional and fail-open.
 
 ## 4. Major changes
 

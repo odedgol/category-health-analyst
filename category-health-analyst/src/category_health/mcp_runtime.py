@@ -6,7 +6,6 @@ from typing import Any
 
 from category_health.audit import AuditTrail
 from category_health.bootstrap import CategoryHealthRuntime, create_demo_runtime
-from category_health.domain.query import QueryIntent
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -31,28 +30,10 @@ class CategoryHealthMcpRuntime:
 
     def analyze(
         self,
-        *,
-        intent: QueryIntent,
-        category: str,
-        sites: list[str],
-        metrics: list[str],
-        start_date: str | None = None,
-        end_date: str | None = None,
-        comparison_start_date: str | None = None,
-        comparison_end_date: str | None = None,
+        arguments: dict[str, Any],
     ) -> dict[str, Any]:
         """Run one independently audited MCP analysis request."""
 
-        arguments = {
-            "intent": intent,
-            "category": category,
-            "sites": sites,
-            "metrics": metrics,
-            "start_date": start_date,
-            "end_date": end_date,
-            "comparison_start_date": comparison_start_date,
-            "comparison_end_date": comparison_end_date,
-        }
         request = {"tool": "analyze_category_health", **arguments}
         audit = self._new_audit("category-health-mcp-request", "mock-data")
         self.audit_sink.update_active_span(
@@ -63,12 +44,12 @@ class CategoryHealthMcpRuntime:
             with audit.step(
                 "mcp_tool_call",
                 input_summary={
-                    "intent": intent.value,
-                    "category": category,
-                    "site_count": len(sites),
-                    "metric_count": len(metrics),
-                    "start_date": start_date,
-                    "end_date": end_date,
+                    "intent": str(arguments.get("intent")),
+                    "category": str(arguments.get("category")),
+                    "site_count": len(arguments.get("sites", [])),
+                    "metric_count": len(arguments.get("metrics", [])),
+                    "start_date": arguments.get("start_date"),
+                    "end_date": arguments.get("end_date"),
                 },
                 input_object=request,
             ) as step:

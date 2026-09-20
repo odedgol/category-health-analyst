@@ -39,6 +39,24 @@ mcp_server.py: analyze_category_health
 MCP does not invoke the project's local LLM. The MCP host performs language
 interpretation and this server performs deterministic analytics.
 
+## Discovery and clarification
+
+```text
+metric question -> list_available_metrics -> typed catalog -> model presentation
+invalid/ambiguous analysis -> clarification response -> stop and ask the user
+```
+
+Clarification never falls through to repository execution.
+
+## Evaluation request
+
+```text
+scenario -> live conversation or deterministic fixture call
+         -> audit evidence scorer -> report.json
+```
+
+The runner executes turns; `evaluation.py` only scores evidence and compares runs.
+
 ## Responsibility boundary
 
 The model may choose a tool, intent and structured arguments. The application owns
